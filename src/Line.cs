@@ -79,7 +79,7 @@ namespace Pegline
             // An image edited in Paint is saved over the original: the photo on
             // the line shows the new version.
             editTimer.Interval = TimeSpan.FromSeconds(1);
-            editTimer.Tick += delegate { ReloadEdited(); };
+            editTimer.Tick += delegate { Prune(); ReloadEdited(); };
             editTimer.Start();
         }
 
@@ -214,15 +214,23 @@ namespace Pegline
             {
                 if (File.Exists(item.Path))
                     FileSystem.DeleteFile(item.Path, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin);
-                if (SoundOn) Sounds.Rustle();
-                Drop(id, true);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                System.Media.SystemSounds.Beep.Play();
+                // Removing the card must still work when Windows cannot recycle
+                // an encrypted file. Preserve the file, never permanently delete it.
+                Drop(id, true);
+                MessageBox.Show(Loc.L(
+                    "Taken off the line. Windows could not move the saved copy to the Recycle Bin; the copy is still here:",
+                    "Retirada de la cuerda. Windows no pudo enviar la copia a la papelera; se conserva aquí:",
+                    "已从晾绳取下。Windows 无法把保存的副本移入回收站，副本仍保留在：")
+                    + Environment.NewLine + item.Path + Environment.NewLine + ex.Message,
+                    "Pegline", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
             }
+            Drop(id, true);
+            if (SoundOn) Sounds.Rustle();
         }
-
         /// Whether the file lives in Pegline's own folder. Those are discarded
         /// to the Recycle Bin, or the folder would fill up with forgotten
         /// screenshots. Files anywhere else stay where they are.
