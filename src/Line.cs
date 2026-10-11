@@ -313,8 +313,13 @@ namespace Pegline
 
         void Restore()
         {
+            // The line's real capacity is only known once it is on a screen;
+            // bring everything back and let the next capture trim it.
+            int max = MaxItems;
+            MaxItems = int.MaxValue;
             foreach (var path in Settings.Pegged)
                 if (path.Length > 0 && File.Exists(path)) Hang(path, true);
+            MaxItems = max;
         }
 
         static bool SamePath(string a, string b)

@@ -74,9 +74,9 @@ namespace Pegline
             return p;
         }
 
-        public static Icon Tray()
+        public static Icon Tray(double scale)
         {
-            int size = Math.Max(16, (int)Math.Round(16 * Screens.Scale));
+            int size = Math.Max(16, (int)Math.Round(16 * scale));
             using (var bmp = Draw(size)) return Icon.FromHandle(bmp.GetHicon());
         }
 

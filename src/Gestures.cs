@@ -197,7 +197,7 @@ namespace Pegline
     }
 
     /// The drag preview: the photo in its glass frame, slightly see-through.
-    class DragGhost : Window
+    class DragGhost : ScreenWindow
     {
         readonly Size size;
 
@@ -212,8 +212,6 @@ namespace Pegline
             ResizeMode = ResizeMode.NoResize;
             var card = Frame.CardSize(thumb.PixelWidth, thumb.PixelHeight);
             size = new Size(card.Width * 0.9, card.Height * 0.9);
-            Width = size.Width;
-            Height = size.Height;
             var border = new Border
             {
                 CornerRadius = new CornerRadius(Frame.Radius), Background = Frame.Glass(), Padding = new Thickness(Frame.Inset),
@@ -230,10 +228,12 @@ namespace Pegline
 
         public void MoveToCursor()
         {
-            Native.POINT p;
-            Native.GetCursorPos(out p);
-            Left = p.X / Screens.Scale - size.Width / 2;
-            Top = p.Y / Screens.Scale + 12;
+            var p = Screens.Cursor();
+            // Sized for the screen under the pointer, so it changes size as it
+            // crosses to a screen with another scale, the way windows do.
+            double s = Screens.ScaleAt(new System.Drawing.Point(p.X, p.Y));
+            int w = (int)Math.Ceiling(size.Width * s), h = (int)Math.Ceiling(size.Height * s);
+            Place(new System.Drawing.Rectangle(p.X - w / 2, p.Y + (int)Math.Round(12 * s), w, h));
         }
     }
 }

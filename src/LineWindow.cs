@@ -10,18 +10,44 @@ using Forms = System.Windows.Forms;
 
 namespace Pegline
 {
-    /// Pixel and screen bookkeeping. The app is system DPI aware, so every
-    /// screen shares one scale between device pixels and WPF units.
+    /// Pixel and screen bookkeeping. The app is per monitor DPI aware (v2):
+    /// everything outside a window (the pointer, screens, capture areas,
+    /// card frames) is in device pixels, and each window turns them into its
+    /// own WPF units with the scale of the screen it is on.
     static class Screens
     {
-        public static double Scale = 1;
-
         public static void Init()
         {
-            // WPF turns DPI awareness on lazily, with its first window. Turn
-            // it on now so this reading and every pixel after it agree.
+            // The manifest already asks for this; the calls cover a stripped
+            // manifest. WPF must also be told to follow DPI changes, before it
+            // reads the switch with its first window.
+            AppContext.SetSwitch("Switch.System.Windows.DoNotScaleForDpiChanges", false);
+            try { if (Native.SetProcessDpiAwarenessContext(Native.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) return; }
+            catch (EntryPointNotFoundException) { }
+            try { Native.SetProcessDpiAwareness(2); return; }
+            catch (DllNotFoundException) { }
+            catch (EntryPointNotFoundException) { }
             Native.SetProcessDPIAware();
-            using (var g = System.Drawing.Graphics.FromHwnd(IntPtr.Zero)) Scale = g.DpiX / 96.0;
+        }
+
+        /// Device pixels per WPF unit on the screen holding a point.
+        public static double ScaleAt(System.Drawing.Point p)
+        {
+            try
+            {
+                var monitor = Native.MonitorFromPoint(new Native.POINT { X = p.X, Y = p.Y }, Native.MONITOR_DEFAULTTONEAREST);
+                uint dx, dy;
+                if (Native.GetDpiForMonitor(monitor, 0, out dx, out dy) == 0 && dx > 0) return dx / 96.0;
+            }
+            catch (DllNotFoundException) { }
+            catch (EntryPointNotFoundException) { }
+            using (var g = System.Drawing.Graphics.FromHwnd(IntPtr.Zero)) return g.DpiX / 96.0;
+        }
+
+        public static double ScaleOf(Forms.Screen s)
+        {
+            var b = s.Bounds;
+            return ScaleAt(new System.Drawing.Point(b.X + b.Width / 2, b.Y + b.Height / 2));
         }
 
         public static Native.POINT Cursor()
@@ -37,9 +63,9 @@ namespace Pegline
             return Forms.Screen.FromPoint(new System.Drawing.Point(p.X, p.Y));
         }
 
-        public static Rect ToDips(System.Drawing.Rectangle r)
+        public static Rect ToRect(System.Drawing.Rectangle r)
         {
-            return new Rect(r.X / Scale, r.Y / Scale, r.Width / Scale, r.Height / Scale);
+            return new Rect(r.X, r.Y, r.Width, r.Height);
         }
 
         /// The top strip of a screen that plays the part of the Mac menu bar:
@@ -53,10 +79,65 @@ namespace Pegline
         }
     }
 
+    /// A borderless window placed by device pixels. It draws at the scale of
+    /// the screen it is on, even when that differs from the one WPF last saw:
+    /// a hidden window moved across screens does not always hear about it.
+    class ScreenWindow : Window
+    {
+        /// Where the window is, in device pixels.
+        public System.Drawing.Rectangle PixelBounds;
+        /// Device pixels per unit of this window's content.
+        public double Scale = 1;
+        IntPtr hwnd;
+
+        public ScreenWindow()
+        {
+            DpiChanged += delegate
+            {
+                // WPF resizes to the size Windows suggests; put it back.
+                Dispatcher.BeginInvoke(new Action(delegate { if (!PixelBounds.IsEmpty) Place(PixelBounds); }));
+            };
+        }
+
+        /// The width of the content, in its own units.
+        public double DipWidth { get { return PixelBounds.Width / Scale; } }
+
+        public void Place(System.Drawing.Rectangle px)
+        {
+            PixelBounds = px;
+            Scale = Screens.ScaleAt(new System.Drawing.Point(px.X + px.Width / 2, px.Y + px.Height / 2));
+            if (hwnd == IntPtr.Zero) hwnd = new WindowInteropHelper(this).EnsureHandle();
+            const uint flags = Native.SWP_NOZORDER | Native.SWP_NOACTIVATE;
+            Native.SetWindowPos(hwnd, IntPtr.Zero, px.X, px.Y, px.Width, px.Height, flags);
+            // Landing on a screen with another DPI resizes the window on the way.
+            Native.RECT r;
+            if (Native.GetWindowRect(hwnd, out r) && (r.Left != px.X || r.Top != px.Y || r.Right != px.Right || r.Bottom != px.Bottom))
+                Native.SetWindowPos(hwnd, IntPtr.Zero, px.X, px.Y, px.Width, px.Height, flags);
+            var root = Content as FrameworkElement;
+            if (root == null) return;
+            double f = Scale / VisualTreeHelper.GetDpi(this).DpiScaleX;
+            var current = root.LayoutTransform as ScaleTransform;
+            if (Math.Abs((current == null ? 1 : current.ScaleX) - f) < 0.001) return;
+            root.LayoutTransform = Math.Abs(f - 1) < 0.001 ? null : new ScaleTransform(f, f);
+        }
+
+        /// A point in device pixels, in this window's content units.
+        public Point ToLocal(Native.POINT p)
+        {
+            return new Point((p.X - PixelBounds.X) / Scale, (p.Y - PixelBounds.Y) / Scale);
+        }
+
+        /// A rectangle in this window's content units, in device pixels.
+        public Rect ToScreen(Rect r)
+        {
+            return new Rect(PixelBounds.X + r.X * Scale, PixelBounds.Y + r.Y * Scale, r.Width * Scale, r.Height * Scale);
+        }
+    }
+
     /// A transparent strip along the top of the screen that floats over every
     /// app, never takes focus, and lets clicks pass through everywhere except
     /// over the photos.
-    class LineWindow : Window
+    class LineWindow : ScreenWindow
     {
         readonly Line line;
         readonly Canvas slider = new Canvas();
@@ -131,11 +212,9 @@ namespace Pegline
         public void PlaceOnScreen(Forms.Screen screen = null)
         {
             Screen = screen ?? Screens.UnderPointer();
-            var area = Screens.ToDips(Screen.WorkingArea);
-            Left = area.X;
-            Top = area.Y;
-            Width = area.Width;
-            Height = Layout.PanelHeight;
+            var area = Screen.WorkingArea;
+            int height = (int)Math.Ceiling(Layout.PanelHeight * Screens.ScaleOf(Screen));
+            Place(new System.Drawing.Rectangle(area.X, area.Y, area.Width, height));
         }
 
         public void KeepOnTop()
@@ -158,7 +237,8 @@ namespace Pegline
         /// The photo under a point in screen pixels, if any.
         public Guid PhotoAt(Native.POINT p)
         {
-            double x = p.X / Screens.Scale - Left, y = p.Y / Screens.Scale - Top;
+            var local = ToLocal(p);
+            double x = local.X, y = local.Y;
             foreach (var c in cards.Values)
             {
                 if (c.Item.Falling) continue;
@@ -171,24 +251,24 @@ namespace Pegline
             return Guid.Empty;
         }
 
-        /// Where a card will hang, in screen units, using the same layout as
+        /// Where a card will hang, in device pixels, using the same layout as
         /// the line itself.
         public Rect? CardFrame(Guid id)
         {
             int index = line.Items.FindIndex(i => i.Id == id);
             if (index < 0) return null;
-            double width = ActualWidth > 0 ? ActualWidth : Width;
+            double width = DipWidth;
             double x = Layout.X(index, line.Items.Count, width);
             double top = Layout.RopeY(x, width) - Layout.PinAbove + Frame.CardOffsetBelowTop;
             var thumb = line.Items[index].Thumb;
             var size = Frame.CardSize(thumb.PixelWidth, thumb.PixelHeight);
-            return new Rect(Left + x - size.Width / 2, Top + top, size.Width, size.Height);
+            return ToScreen(new Rect(x - size.Width / 2, top, size.Width, size.Height));
         }
 
         /// Keeps the views in step with the line's items.
         public void Sync()
         {
-            double width = ActualWidth > 0 ? ActualWidth : Width;
+            double width = DipWidth;
             var live = new HashSet<Guid>(line.Items.Select(i => i.Id));
             foreach (var gone in cards.Keys.Where(k => !live.Contains(k)).ToList())
             {
@@ -251,7 +331,7 @@ namespace Pegline
             if (dt <= 0) return;
             dt = Math.Min(dt, 1.0 / 20);
 
-            double width = ActualWidth;
+            double width = DipWidth;
             DrawRope(width);
 
             // Tucked away, the whole line waits above the top edge and slides

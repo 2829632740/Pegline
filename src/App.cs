@@ -82,7 +82,7 @@ namespace Pegline
             {
                 panel.Dispatcher.BeginInvoke(new Action(delegate
                 {
-                    Screens.Init();
+                    tray.Icon = AppIcon.Tray(Screens.ScaleOf(Forms.Screen.PrimaryScreen));
                     panel.PlaceOnScreen(panel.Screen != null && Forms.Screen.AllScreens.Contains(panel.Screen) ? panel.Screen : null);
                     UpdateCapacity();
                 }));
@@ -194,7 +194,7 @@ namespace Pegline
             {
                 var r = from.Value;
                 pendingScreen = Forms.Screen.FromPoint(new System.Drawing.Point(
-                    (int)((r.X + r.Width / 2) * Screens.Scale), (int)((r.Y + r.Height / 2) * Screens.Scale)));
+                    (int)(r.X + r.Width / 2), (int)(r.Y + r.Height / 2)));
             }
             Guid id = line.Hang(path, false, from.HasValue);
             if (id == Guid.Empty || !from.HasValue) return;
@@ -211,7 +211,7 @@ namespace Pegline
                 line.Land(id);
                 return;
             }
-            int pixels = (int)(Math.Max(from.Width, from.Height) * Screens.Scale);
+            int pixels = (int)Math.Max(from.Width, from.Height);
             var image = Thumbnails.Load(item.Path, Math.Min(3000, Math.Max(400, pixels)));
             if (image == null) { line.Land(id); return; }
             Flight.Fly(image, from, to.Value, item.Tilt, panel.Screen, delegate { line.Land(id); });
@@ -398,9 +398,8 @@ namespace Pegline
 
             // The line's zone runs from its lowest point up to the top of the
             // screen, so moving up never hides it.
-            var zone = new Rect(panel.Left * Screens.Scale, panel.Screen.Bounds.Top,
-                                panel.Width * Screens.Scale,
-                                (panel.Top + Layout.PanelHeight) * Screens.Scale - panel.Screen.Bounds.Top);
+            var b = panel.PixelBounds;
+            var zone = new Rect(b.Left, panel.Screen.Bounds.Top, b.Width, b.Bottom - panel.Screen.Bounds.Top);
             bool inside = zone.Contains(mouse.X, mouse.Y);
             if (inside && pinned) pinned = false;
 
@@ -427,7 +426,7 @@ namespace Pegline
 
         void UpdateCapacity()
         {
-            double usable = panel.Width - 200;
+            double usable = panel.DipWidth - 200;
             line.MaxItems = Math.Max(3, Math.Min(12, (int)(usable / Layout.Spacing)));
         }
 
@@ -435,7 +434,7 @@ namespace Pegline
 
         void SetUpTray()
         {
-            tray.Icon = AppIcon.Tray();
+            tray.Icon = AppIcon.Tray(Screens.ScaleOf(Forms.Screen.PrimaryScreen));
             tray.Text = "Pegline";
             tray.Visible = true;
             var menu = new Forms.ContextMenuStrip();

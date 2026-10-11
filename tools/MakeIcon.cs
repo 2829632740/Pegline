@@ -1,8 +1,6 @@
 // Build helper: writes Pegline.ico from the same drawing code the tray uses.
 namespace Pegline
 {
-    static class Screens { public static double Scale = 1; }
-
     static class MakeIcon
     {
         static void Main(string[] args)

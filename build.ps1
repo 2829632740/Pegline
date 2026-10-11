@@ -22,6 +22,6 @@ if ($LASTEXITCODE) { throw "MakeIcon failed" }
 Remove-Item build\MakeIcon.exe
 
 # 2. The app.
-& $csc /nologo /target:winexe /optimize+ /out:build\Pegline.exe /win32icon:build\Pegline.ico $refs (Get-ChildItem src\*.cs).FullName
+& $csc /nologo /target:winexe /optimize+ /out:build\Pegline.exe /win32icon:build\Pegline.ico /win32manifest:src\app.manifest $refs (Get-ChildItem src\*.cs).FullName
 if ($LASTEXITCODE) { throw "Build failed" }
 Write-Host "Built $(Resolve-Path build\Pegline.exe)"

@@ -26,7 +26,9 @@ namespace Pegline
 
         public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
         public static readonly IntPtr HWND_MESSAGE = new IntPtr(-3);
-        public const uint SWP_NOSIZE = 0x1, SWP_NOMOVE = 0x2, SWP_NOACTIVATE = 0x10;
+        public const uint SWP_NOSIZE = 0x1, SWP_NOMOVE = 0x2, SWP_NOZORDER = 0x4, SWP_NOACTIVATE = 0x10;
+        public static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new IntPtr(-4);
+        public const uint MONITOR_DEFAULTTONEAREST = 2;
 
         [StructLayout(LayoutKind.Sequential)]
         public struct POINT { public int X, Y; }
@@ -36,6 +38,10 @@ namespace Pegline
 
         [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
         [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+        [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr context);
+        [DllImport("shcore.dll")] public static extern int SetProcessDpiAwareness(int value);
+        [DllImport("shcore.dll")] public static extern int GetDpiForMonitor(IntPtr monitor, int type, out uint dpiX, out uint dpiY);
+        [DllImport("user32.dll")] public static extern IntPtr MonitorFromPoint(POINT p, uint flags);
         [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);
         [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr hwnd, int index);
         [DllImport("user32.dll")] public static extern int SetWindowLong(IntPtr hwnd, int index, int value);

@@ -13,7 +13,7 @@ namespace Pegline
     /// into the hanging card on the way: it shrinks, tilts into place and
     /// grows its glass frame and clip, so there is nothing left to change on
     /// landing. The same window draws a discarded card falling.
-    class Flight : Window
+    class Flight : ScreenWindow
     {
         const double Arc = 30;
 
@@ -23,7 +23,8 @@ namespace Pegline
         readonly Image photo = new Image();
         readonly UIElement clip = Frame.Clothespin();
         readonly RotateTransform rotate = new RotateTransform();
-        readonly Rect from, to, screen;
+        /// In this window's units.
+        readonly Rect from, to;
         readonly double tilt;
         readonly bool falling;
         readonly double duration;
@@ -31,7 +32,7 @@ namespace Pegline
         TimeSpan start;
         double fadeOut = -1;
 
-        /// from and to are in screen units; to is the card's frame on the line.
+        /// from and to are in device pixels; to is the card's frame on the line.
         public static void Fly(BitmapSource image, Rect from, Rect to, double tilt, Forms.Screen on, Action completion)
         {
             new Flight(image, from, to, tilt, on, false, completion).Show();
@@ -47,13 +48,10 @@ namespace Pegline
 
         Flight(BitmapSource image, Rect from, Rect to, double tilt, Forms.Screen on, bool falling, Action completion)
         {
-            this.from = from;
-            this.to = to;
             this.tilt = tilt;
             this.falling = falling;
             this.completion = completion;
             duration = falling ? 0.55 : 0.65;
-            screen = Screens.ToDips(on.Bounds);
 
             WindowStyle = WindowStyle.None;
             AllowsTransparency = true;
@@ -62,10 +60,6 @@ namespace Pegline
             ShowActivated = false;
             Topmost = true;
             ResizeMode = ResizeMode.NoResize;
-            Left = screen.X;
-            Top = screen.Y;
-            Width = screen.Width;
-            Height = screen.Height;
 
             glass.Background = Frame.Glass();
             glass.BorderBrush = Frame.Edge();
@@ -87,6 +81,9 @@ namespace Pegline
                 var hwnd = new WindowInteropHelper(this).Handle;
                 Native.SetExStyle(hwnd, Native.WS_EX_TRANSPARENT | Native.WS_EX_TOOLWINDOW | Native.WS_EX_NOACTIVATE, true);
             };
+            Place(on.Bounds);
+            this.from = Local(from);
+            this.to = Local(to);
             if (falling) UpdateFall(0); else Update(0);
             CompositionTarget.Rendering += OnFrame;
         }
@@ -112,6 +109,11 @@ namespace Pegline
             if (falling) { Finish(); return; }
             if (completion != null) completion();
             fadeOut = t;
+        }
+
+        Rect Local(Rect px)
+        {
+            return new Rect((px.X - PixelBounds.X) / Scale, (px.Y - PixelBounds.Y) / Scale, px.Width / Scale, px.Height / Scale);
         }
 
         void Finish()
@@ -140,7 +142,7 @@ namespace Pegline
             double e = raw * raw * raw;
             double angle = tilt + (tilt * 7 + 20) * e;
             SetChrome(to.Width, to.Height, 1);
-            Place(to.Width, to.Height, to.X + to.Width / 2 - screen.X, to.Y - screen.Y + 520 * e, angle);
+            Place(to.Width, to.Height, to.X + to.Width / 2, to.Y + 520 * e, angle);
             Opacity = 1 - e;
         }
 
@@ -150,8 +152,8 @@ namespace Pegline
             double chrome = Ease.Smooth(k, 0.35, 1);
             Func<double, double, double> lerp = (a, b) => a + (b - a) * k;
             double w = lerp(from.Width, to.Width), h = lerp(from.Height, to.Height);
-            double topX = lerp(from.X + from.Width / 2, to.X + to.Width / 2) - screen.X;
-            double topY = lerp(from.Y, to.Y) - screen.Y - Math.Sin(Math.PI * k) * Arc;
+            double topX = lerp(from.X + from.Width / 2, to.X + to.Width / 2);
+            double topY = lerp(from.Y, to.Y) - Math.Sin(Math.PI * k) * Arc;
             SetChrome(w, h, k);
             glass.Opacity = chrome;
             clip.Opacity = chrome;
@@ -174,7 +176,7 @@ namespace Pegline
     /// file, so it is worked out from the image's size: the whole virtual
     /// desktop or one screen (PrtScn), the active window (Alt+PrtScn), or a
     /// region whose bottom right corner is where the pointer let go (the
-    /// Snipping Tool). Returned in screen units, or null to just drop it in.
+    /// Snipping Tool). Returned in device pixels, or null to just drop it in.
     static class CaptureArea
     {
         public static Rect? Guess(int width, int height, IntPtr foreground, bool fromPointer = true)
@@ -185,23 +187,23 @@ namespace Pegline
             foreach (var s in Forms.Screen.AllScreens)
                 if (near(s.Bounds.Width, width) && near(s.Bounds.Height, height)
                     && s.Bounds.Contains(Screens.UnderPointer().Bounds.Location))
-                    return Screens.ToDips(s.Bounds);
+                    return Screens.ToRect(s.Bounds);
             if (near(virt.Width, width) && near(virt.Height, height))
             {
                 // A capture of every screen flies up from the one with the line.
-                return Screens.ToDips(Screens.UnderPointer().Bounds);
+                return Screens.ToRect(Screens.UnderPointer().Bounds);
             }
             Native.RECT r;
             if (foreground != IntPtr.Zero && Native.GetWindowRect(foreground, out r)
                 && Math.Abs(r.Right - r.Left - width) <= 20 && Math.Abs(r.Bottom - r.Top - height) <= 20)
             {
                 int dx = (r.Right - r.Left - width) / 2;
-                return Screens.ToDips(new System.Drawing.Rectangle(r.Left + dx, r.Top, width, height));
+                return Screens.ToRect(new System.Drawing.Rectangle(r.Left + dx, r.Top, width, height));
             }
             if (!fromPointer) return null;
             var p = Screens.Cursor();
             var area = new System.Drawing.Rectangle(p.X - width, p.Y - height, width, height);
-            if (virt.Contains(area)) return Screens.ToDips(area);
+            if (virt.Contains(area)) return Screens.ToRect(area);
             return null;
         }
     }

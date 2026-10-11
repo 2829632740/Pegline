@@ -17,6 +17,9 @@ build.cmd
 **零依赖**：用的是 Windows 10/11 自带的 .NET Framework 4.8 和它附带的 C# 编译器（`csc.exe`），
 不需要装 Visual Studio、.NET SDK 或任何东西。拷到别的 Windows 10/11 电脑上也能直接运行。
 
+**多屏不同缩放**：按显示器分别处理 DPI（Per-Monitor V2，见 `src/app.manifest`）。笔记本 150% 加外接屏 100% 这种组合，
+两块屏幕上都按各自的缩放清晰绘制，绳子、图片、点击和拖拽的位置都对得上。
+
 ## 操作
 
 | 操作 | 效果 |
