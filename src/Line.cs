@@ -160,6 +160,53 @@ namespace Pegline
             }
         }
 
+        /// The screenshots caught from the clipboard, on the line or not.
+        public static string[] InboxFiles()
+        {
+            try { return Directory.Exists(InboxFolder) ? Directory.GetFiles(InboxFolder) : new string[0]; }
+            catch (Exception) { return new string[0]; }
+        }
+
+        /// Whether EmptyInbox is still sending files to the Recycle Bin.
+        public bool Emptying;
+
+        /// Sends every caught screenshot to the Recycle Bin and takes those
+        /// photos off the line. Files hanging from elsewhere stay put. Each
+        /// file takes the shell a moment, so it runs off the UI thread; done
+        /// gets the number of files that could not be removed.
+        public void EmptyInbox(Action<int> done)
+        {
+            if (Emptying) return;
+            var files = InboxFiles();
+            if (files.Length == 0) { if (done != null) done(0); return; }
+            Emptying = true;
+            var inbox = Items.Where(i => !i.Falling && IsInInbox(i.Id)).ToList();
+            for (int n = 0; n < inbox.Count; n++)
+            {
+                var item = inbox[n];
+                if (n == 0) Drop(item.Id, true);
+                else After(0.06 * n, delegate { Drop(item.Id, true); });
+            }
+            if (SoundOn) Sounds.Rustle();
+            var ui = Dispatcher.CurrentDispatcher;
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                foreach (var f in files)
+                {
+                    // A file open elsewhere gets the shell's own retry or skip dialog.
+                    try { FileSystem.DeleteFile(f, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin, UICancelOption.DoNothing); }
+                    catch (Exception) { }
+                }
+                int left = files.Count(File.Exists);
+                ui.BeginInvoke(new Action(delegate
+                {
+                    Emptying = false;
+                    Prune();
+                    if (done != null) done(left);
+                }));
+            });
+        }
+
         /// Photos whose file was deleted or moved away fall off by themselves.
         public void Prune()
         {

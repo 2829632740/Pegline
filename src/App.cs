@@ -430,6 +430,36 @@ namespace Pegline
             line.MaxItems = Math.Max(3, Math.Min(12, (int)(usable / Layout.Spacing)));
         }
 
+        /// Clears out the folder caught screenshots pile up in, after asking.
+        /// Only Pegline's own folder: captures saved to Pictures\Screenshots
+        /// are yours and stay.
+        void EmptyInbox()
+        {
+            var files = Line.InboxFiles();
+            if (files.Length == 0) return;
+            int hanging = line.Items.Count(i => !i.Falling && line.IsInInbox(i.Id));
+            var answer = MessageBox.Show(
+                string.Format(Loc.L(
+                    "Move the {0} screenshots Pegline caught to the Recycle Bin? {1} of them hang on the line and come down too.\n\n" +
+                    "Screenshots saved to Pictures\\Screenshots (Win+PrtScn) are not touched.",
+                    "¿Mover a la Papelera las {0} capturas que guardó Pegline? {1} están colgadas y también se descolgarán.\n\n" +
+                    "Las capturas guardadas en Imágenes\\Capturas de pantalla (Win+ImprPant) no se tocan.",
+                    "把 Pegline 接管保存的 {0} 个截图文件移到回收站？其中 {1} 张挂在绳子上，会一起取下。\n\n" +
+                    "「图片\\Screenshots」里的截图（Win+PrtScn 存的）不受影响。"), files.Length, hanging),
+                Loc.L("Delete caught screenshots", "Borrar capturas guardadas", "清空截图文件"),
+                MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+            if (answer != MessageBoxResult.Yes) return;
+            line.EmptyInbox(left =>
+            {
+                if (left == 0) return;
+                MessageBox.Show(
+                    string.Format(Loc.L("{0} files could not be moved to the Recycle Bin. They may be open in another app.",
+                                        "No se pudieron mover {0} archivos a la Papelera. Puede que estén abiertos en otra aplicación.",
+                                        "有 {0} 个文件没能移到回收站，可能正被别的程序打开。"), left),
+                    "Pegline", MessageBoxButton.OK, MessageBoxImage.Information);
+            });
+        }
+
         // Tray icon
 
         void SetUpTray()
@@ -460,6 +490,10 @@ namespace Pegline
             if (catcher.HotKeyRegistered) toggle.ShortcutKeyDisplayString = "Ctrl+Alt+T";
 
             add(Loc.L("Take everything down", "Descolgar todo", "全部取下"), line.Clear).Enabled = line.LiveCount > 0;
+
+            int caught = Line.InboxFiles().Length;
+            add(string.Format(Loc.L("Delete caught screenshots ({0})…", "Borrar capturas guardadas ({0})…", "清空截图文件（{0} 个）…"), caught),
+                EmptyInbox).Enabled = caught > 0 && !line.Emptying;
 
             var catching = add(Loc.L("Handle screenshots", "Encargarse de las capturas", "接管截图"),
                                () => SetCatching(!CatchClipboard));
