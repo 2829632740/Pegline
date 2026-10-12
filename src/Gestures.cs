@@ -21,6 +21,8 @@ namespace Pegline
     {
         public static bool IsDragging;
         public static bool MenuOpen;
+        /// Dismiss passive previews before any click, menu or drag starts.
+        public static event Action Interacting;
 
         /// How long you hold before the editor opens. Long enough not to fire
         /// on a slow click, short enough to feel deliberate.
@@ -32,6 +34,11 @@ namespace Pegline
             bool startedDrag = false, didLongPress = false;
             var hold = new DispatcherTimer { Interval = TimeSpan.FromSeconds(HoldSeconds) };
             Guid id = card.Item.Id;
+
+            target.PreviewMouseDown += delegate
+            {
+                if (Interacting != null) Interacting();
+            };
 
             Action endPress = delegate
             {

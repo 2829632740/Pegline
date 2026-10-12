@@ -27,6 +27,7 @@ namespace Pegline
         public const uint KEYEVENTF_KEYUP = 0x2;
 
         public const int VK_LBUTTON = 0x01;
+        public const int VK_RBUTTON = 0x02, VK_MBUTTON = 0x04;
 
         public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
         public static readonly IntPtr HWND_MESSAGE = new IntPtr(-3);

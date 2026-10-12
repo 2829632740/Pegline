@@ -15,6 +15,7 @@ namespace Pegline
     {
         readonly Line line = new Line();
         readonly LineWindow panel;
+        readonly HoverPreview preview;
         readonly Forms.NotifyIcon tray = new Forms.NotifyIcon();
         ScreenshotWatcher watcher;
         readonly ClipboardCatcher catcher;
@@ -62,6 +63,8 @@ namespace Pegline
         public Controller()
         {
             panel = new LineWindow(line);
+            preview = new HoverPreview(panel);
+            Gestures.Interacting += preview.Hide;
             panel.PlaceOnScreen();
             UpdateCapacity();
 
@@ -85,6 +88,7 @@ namespace Pegline
             {
                 panel.Dispatcher.BeginInvoke(new Action(delegate
                 {
+                    preview.Hide();
                     tray.Icon = AppIcon.Tray(Screens.ScaleOf(Forms.Screen.PrimaryScreen));
                     panel.PlaceOnScreen(panel.Screen != null && Forms.Screen.AllScreens.Contains(panel.Screen) ? panel.Screen : null);
                     UpdateCapacity();
@@ -124,6 +128,9 @@ namespace Pegline
 
         public void Shutdown()
         {
+            mouseTimer.Stop();
+            Gestures.Interacting -= preview.Hide;
+            preview.Close();
             if (mouseHook != IntPtr.Zero) Native.UnhookWindowsHookEx(mouseHook);
             catcher.Dispose();
             if (watcher != null) watcher.Stop();
@@ -325,6 +332,7 @@ namespace Pegline
 
         void Dismiss()
         {
+            preview.Hide();
             if (!isPresent) return;
             isPresent = false;
             SetRevealed(false);
@@ -343,6 +351,7 @@ namespace Pegline
 
         void SetRevealed(bool on)
         {
+            if (!on) preview.Hide();
             if (on == isRevealed) return;
             isRevealed = on;
             line.Revealed = on;
@@ -439,7 +448,9 @@ namespace Pegline
                 return;
             }
 
-            UpdateMousePassThrough(mouse);
+            bool previewButtonDown = buttonDown || (Native.GetAsyncKeyState(Native.VK_RBUTTON) & 0x8000) != 0
+                || (Native.GetAsyncKeyState(Native.VK_MBUTTON) & 0x8000) != 0;
+            UpdateMousePassThrough(mouse, now, previewButtonDown);
 
             // The line's zone runs from its lowest point up to the top of the
             // screen, so moving up never hides it.
@@ -461,12 +472,20 @@ namespace Pegline
             }
         }
 
-        void UpdateMousePassThrough(Native.POINT mouse)
+        void UpdateMousePassThrough(Native.POINT mouse, DateTime now, bool buttonDown)
         {
-            if (Gestures.IsDragging || Gestures.MenuOpen) return;
+            if (Gestures.IsDragging || Gestures.MenuOpen)
+            {
+                preview.Hide();
+                return;
+            }
             Guid over = panel.PhotoAt(mouse);
             line.HoverId = over;
             panel.SetClickThrough(over == Guid.Empty && line.PressedId == Guid.Empty);
+            if (!isPresent || !isRevealed || buttonDown || line.PressedId != Guid.Empty || FullScreen.IsActive(panel.Screen))
+                preview.Hide();
+            else
+                preview.Update(line.Find(over), panel.CardFrame(over), panel.Screen, now);
         }
 
         void UpdateCapacity()

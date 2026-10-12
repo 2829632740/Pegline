@@ -24,6 +24,7 @@ build.cmd
 
 | 操作 | 效果 |
 |:--|:--|
+| 鼠标悬停在图片上约 0.35 秒 | 在图片下方显示大图预览；移开、点击、右键、拖拽或收起绳子时关闭，不抢焦点 |
 | 单击 | 复制图片（同时带图片和文件，粘贴进聊天软件、Word、文件夹都行） |
 | 长按 | 用画图打开编辑，保存后绳子上的缩略图自动刷新 |
 | 双击 | 用默认看图软件打开 |
@@ -89,6 +90,7 @@ Pegline 不自己实现截图，用的是 Windows 自带的截图界面：
 | `LineWindow.cs` | 屏幕顶部那条透明、不抢焦点、只在图片上接收鼠标的窗口；绳子本身 | `LinePanel.swift`、`LineView.swift` |
 | `CardView.cs` | 一张图：相框、夹子、摆动、微风 | `PeggedView.swift` |
 | `Gestures.cs` | 单击、长按、拖拽、右键菜单、拖拽预览 | `GrabArea.swift` |
+| `HoverPreview.cs` | 悬停大图预览、异步加载和多屏预览位置 | |
 | `Line.cs` | 挂着什么、每张图能做什么、持久化 | `Line.swift`、`Markup.swift` |
 | `Watchers.cs` | 监听 Screenshots 文件夹、接管剪贴板截图、全局快捷键 | `ScreenshotWatcher.swift`、`Inbox.swift`、`HotKey.swift` |
 | `Flight.cs` | 截图飞上绳子、丢弃时掉落、全屏检测 | `CaptureFlight.swift`、`FullScreen.swift` |
