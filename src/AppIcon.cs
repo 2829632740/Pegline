@@ -5,8 +5,9 @@ using System.IO;
 
 namespace Pegline
 {
-    /// Pegline's own icon, drawn in code: a single wooden peg gripping a line
-    /// on a deep green tile. The build uses Write() to make the .exe icon;
+    /// Pegline's own icon, drawn in code: a photo hanging from a line by a
+    /// small metal clip, tilted a little, on a deep green tile. It is what
+    /// the app shows on screen. The build uses Write() to make the .exe icon;
     /// the tray draws it live so it stays sharp at any DPI.
     static class AppIcon
     {
@@ -18,9 +19,10 @@ namespace Pegline
                 g.SmoothingMode = SmoothingMode.AntiAlias;
                 g.PixelOffsetMode = PixelOffsetMode.HighQuality;
                 float s = size;
+                // Tray sizes drop the tile and let the photo fill the square,
+                // with a dark outline so it reads on light and dark taskbars.
                 bool tiny = size <= 20;
 
-                // The tile, left out at tray sizes where the peg alone reads better.
                 if (!tiny)
                 {
                     float m = s * 0.06f, r = s * 0.22f;
@@ -31,33 +33,80 @@ namespace Pegline
                 }
 
                 // The line, sagging a little.
-                float y0 = s * (tiny ? 0.30f : 0.36f);
-                using (var pen = new Pen(tiny ? Color.FromArgb(90, 90, 90) : Color.FromArgb(220, 236, 230), Math.Max(1f, s * 0.035f)))
+                float y0 = s * (tiny ? 0.16f : 0.27f), sag = s * (tiny ? 0.05f : 0.07f);
+                using (var pen = new Pen(tiny ? Color.FromArgb(110, 110, 110) : Color.FromArgb(220, 236, 230), Math.Max(1f, s * 0.03f)))
                 {
                     pen.StartCap = pen.EndCap = LineCap.Round;
-                    float x0 = tiny ? 0.5f : s * 0.14f, x1 = tiny ? s - 0.5f : s * 0.86f;
-                    g.DrawBezier(pen, x0, y0, s * 0.4f, y0 + s * 0.08f, s * 0.6f, y0 + s * 0.08f, x1, y0);
+                    float x0 = tiny ? 0.5f : s * 0.13f, x1 = tiny ? s - 0.5f : s * 0.87f;
+                    g.DrawBezier(pen, x0, y0, s * 0.38f, y0 + sag * 1.33f, s * 0.62f, y0 + sag * 1.33f, x1, y0);
                 }
 
-                // The peg: two wooden prongs and a steel spring.
-                float pw = s * (tiny ? 0.30f : 0.22f), ph = s * (tiny ? 0.78f : 0.56f);
-                float px = (s - pw) / 2, py = y0 - ph * 0.30f + s * 0.04f;
-                using (var wood = new LinearGradientBrush(new PointF(px, 0), new PointF(px + pw, 0),
-                                                          Color.FromArgb(242, 196, 120), Color.FromArgb(196, 132, 62)))
-                using (var path = Rounded(px, py, pw, ph, pw * 0.42f))
+                // The photo, landscape, hanging from its top middle and tilted
+                // the way cards swing on the line.
+                float pinY = y0 + sag;
+                float pw = tiny ? s - 2 : s * 0.58f, ph = tiny ? (float)Math.Round(pw * 0.72f) : pw * 0.74f;
+                var state = g.Save();
+                g.TranslateTransform(s / 2, tiny ? (float)Math.Floor(pinY) : pinY);
+                // Upright at tray sizes: a tilt only blurs a 16 pixel frame.
+                if (!tiny) g.RotateTransform(-7f);
+                float top = tiny ? 1 : s * 0.045f;
+                var frame = new RectangleF(-pw / 2, top, pw, ph);
+
+                if (!tiny)
+                    using (var shadow = Rounded(frame.X + s * 0.012f, frame.Y + s * 0.03f, pw, ph, s * 0.035f))
+                    using (var b = new SolidBrush(Color.FromArgb(70, 0, 20, 10)))
+                        g.FillPath(b, shadow);
+
+                float fr = tiny ? 1.5f : s * 0.035f;
+                using (var path = Rounded(frame.X, frame.Y, pw, ph, fr))
+                using (var white = new SolidBrush(Color.FromArgb(250, 252, 251)))
                 {
-                    g.FillPath(wood, path);
-                    using (var edge = new Pen(Color.FromArgb(120, 90, 50, 20), Math.Max(1f, s * 0.012f))) g.DrawPath(edge, path);
+                    g.FillPath(white, path);
+                    if (tiny) using (var edge = new Pen(Color.FromArgb(200, 40, 48, 52), 1f)) g.DrawPath(edge, path);
                 }
-                // The split between the two halves.
-                using (var split = new Pen(Color.FromArgb(150, 110, 60, 20), Math.Max(1f, s * 0.018f)))
-                    g.DrawLine(split, s / 2, py + ph * 0.48f, s / 2, py + ph * 0.96f);
-                // The spring.
-                float sw = pw * 1.18f, sh = s * (tiny ? 0.12f : 0.08f);
-                using (var steel = new LinearGradientBrush(new PointF(0, py + ph * 0.36f), new PointF(0, py + ph * 0.36f + sh),
-                                                           Color.FromArgb(235, 238, 240), Color.FromArgb(130, 136, 140)))
-                using (var path = Rounded((s - sw) / 2, py + ph * 0.36f, sw, sh, sh / 2))
+
+                // The picture inside: sky, sun and two hills.
+                float inset = tiny ? 2f : pw * 0.075f;
+                var pic = new RectangleF(frame.X + inset, frame.Y + inset, pw - 2 * inset, ph - 2 * inset);
+                var clipState = g.Save();
+                using (var picPath = Rounded(pic.X, pic.Y, pic.Width, pic.Height, tiny ? 0.5f : s * 0.012f))
+                {
+                    g.SetClip(picPath, CombineMode.Intersect);
+                    using (var sky = new LinearGradientBrush(new PointF(0, pic.Top), new PointF(0, pic.Bottom),
+                                                             Color.FromArgb(120, 190, 240), Color.FromArgb(196, 230, 250)))
+                        g.FillRectangle(sky, pic);
+                    float sun = pic.Height * (tiny ? 0.42f : 0.30f);
+                    using (var b = new SolidBrush(Color.FromArgb(255, 205, 80)))
+                        g.FillEllipse(b, pic.Right - pic.Width * 0.30f, pic.Top + pic.Height * 0.14f, sun, sun);
+                    using (var far = new SolidBrush(Color.FromArgb(70, 128, 176)))
+                        g.FillPolygon(far, new[] {
+                            new PointF(pic.Left, pic.Bottom), new PointF(pic.Left, pic.Top + pic.Height * 0.62f),
+                            new PointF(pic.Left + pic.Width * 0.34f, pic.Top + pic.Height * 0.30f),
+                            new PointF(pic.Left + pic.Width * 0.72f, pic.Bottom) });
+                    using (var near = new SolidBrush(Color.FromArgb(48, 150, 112)))
+                        g.FillPolygon(near, new[] {
+                            new PointF(pic.Left + pic.Width * 0.30f, pic.Bottom),
+                            new PointF(pic.Left + pic.Width * 0.66f, pic.Top + pic.Height * 0.50f),
+                            new PointF(pic.Right, pic.Top + pic.Height * 0.72f), new PointF(pic.Right, pic.Bottom) });
+                }
+                g.Restore(clipState);
+
+                // The clip: a short steel grip over the top edge, as on screen.
+                float cw = tiny ? 4 : s * 0.12f, ch = tiny ? 4 : s * 0.11f;
+                float cy = tiny ? -1 : -ch * 0.40f;
+                using (var steel = new LinearGradientBrush(new PointF(-cw / 2, 0), new PointF(cw / 2, 0),
+                                                           Color.White, Color.Gray))
+                using (var path = Rounded(-cw / 2, cy, cw, ch, tiny ? 0.8f : cw * 0.18f))
+                {
+                    steel.InterpolationColors = new ColorBlend
+                    {
+                        Colors = new[] { Color.FromArgb(160, 164, 168), Color.FromArgb(240, 242, 243), Color.FromArgb(206, 210, 212), Color.FromArgb(140, 146, 150) },
+                        Positions = new[] { 0f, 0.35f, 0.65f, 1f }
+                    };
                     g.FillPath(steel, path);
+                    using (var edge = new Pen(Color.FromArgb(tiny ? 200 : 110, 40, 48, 52), Math.Max(1f, s * 0.008f))) g.DrawPath(edge, path);
+                }
+                g.Restore(state);
             }
             return bmp;
         }
