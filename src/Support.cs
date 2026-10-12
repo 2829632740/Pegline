@@ -77,7 +77,19 @@ namespace Pegline
 
         public static void Set(string key, bool on)
         {
-            Values[key] = on ? "1" : "0";
+            SetString(key, on ? "1" : "0");
+        }
+
+        /// A text setting, or null when it was never set.
+        public static string GetString(string key)
+        {
+            string v;
+            return Values.TryGetValue(key, out v) ? v : null;
+        }
+
+        public static void SetString(string key, string value)
+        {
+            Values[key] = value;
             try
             {
                 Directory.CreateDirectory(Dir);

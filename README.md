@@ -4,7 +4,7 @@
 
 这是 [Tendedero](https://github.com/alejandrobujan/tendedero)（作者 Alejandro Buján，仅支持 macOS）
 在 Windows 上的移植。Tendedero 的 LICENSE 规定代码是 MIT，但**名字和图标不在授权范围内，修改版必须换名、换图标**，
-所以这里叫 Pegline，图标是重新画的（深绿底、一根绳、一个木夹子）。
+所以这里叫 Pegline，图标是重新画的（深绿底、一根绳、一个小金属夹夹着一张照片）。
 
 ## 运行
 
@@ -34,10 +34,18 @@ build.cmd
 | 鼠标顶在屏幕最上沿约 0.3 秒 | 在那块屏幕上放下绳子 |
 | 点击屏幕最上沿（标签页、标题栏） | 收起绳子 |
 | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>T</kbd>，或左键点托盘图标 | 显示 / 收起 |
+| <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>S</kbd>（可在托盘菜单「截图快捷键」里改） | 截图，截完自动挂上绳子 |
 
 ## 截图从哪来
 
-Pegline 自己不截图，你照常用原来的快捷键：
+Pegline 不自己实现截图，用的是 Windows 自带的截图界面：
+
+- **Ctrl+Alt+S**（默认，可改）：打开系统截图框选界面（和 Win+Shift+S 同一个），截的图**一定会挂上绳子**，
+  不需要打开「接管截图」。只认按下快捷键后一分钟内的那一张，不会顺带开始读你的剪贴板。
+  默认值故意避开了 QQ（Ctrl+Alt+A）、微信（Alt+A）、钉钉和飞书（Ctrl+Shift+A）的截图键；
+  想换成别的，在托盘菜单「截图快捷键」里直接按下新组合，被别的程序占用时会提示。
+
+也可以照常用原来的快捷键：
 
 - **Win+PrtScn**：Windows 会把文件存到「图片\Screenshots」，Pegline 监听这个文件夹（位置改过也能找到）。
 - **Win+Shift+S、PrtScn**（只进剪贴板，不存文件）：首次启动会问你要不要「接管截图」。
@@ -85,6 +93,7 @@ Pegline 自己不截图，你照常用原来的快捷键：
 | `Watchers.cs` | 监听 Screenshots 文件夹、接管剪贴板截图、全局快捷键 | `ScreenshotWatcher.swift`、`Inbox.swift`、`HotKey.swift` |
 | `Flight.cs` | 截图飞上绳子、丢弃时掉落、全屏检测 | `CaptureFlight.swift`、`FullScreen.swift` |
 | `Support.cs` | 多语言、设置、音效、弹簧动画 | `Localization.swift` |
+| `Shortcut.cs` | 快捷键的保存格式、「截图快捷键」设置窗口 | |
 | `AppIcon.cs` | 用代码画的图标（托盘和 exe 共用） | `scripts/make-icon.swift` |
 | `Native.cs` | Win32 调用 | |
 

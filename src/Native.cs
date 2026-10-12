@@ -20,7 +20,11 @@ namespace Pegline
 
         public const uint MOD_ALT = 0x1;
         public const uint MOD_CONTROL = 0x2;
+        public const uint MOD_SHIFT = 0x4;
+        public const uint MOD_WIN = 0x8;
         public const uint MOD_NOREPEAT = 0x4000;
+        public const byte VK_SHIFT = 0x10, VK_LWIN = 0x5B;
+        public const uint KEYEVENTF_KEYUP = 0x2;
 
         public const int VK_LBUTTON = 0x01;
 
@@ -56,6 +60,7 @@ namespace Pegline
         public static extern int GetClassName(IntPtr hwnd, StringBuilder name, int max);
         [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
 
+        [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
         [DllImport("user32.dll")] public static extern bool RegisterHotKey(IntPtr hwnd, int id, uint mods, uint vk);
         [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hwnd, int id);
         [DllImport("user32.dll")] public static extern bool AddClipboardFormatListener(IntPtr hwnd);

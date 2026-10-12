@@ -145,19 +145,24 @@ namespace Pegline
     /// Catching mode: the Snipping Tool (Win+Shift+S) and PrtScn put the
     /// capture on the clipboard. Pegline saves each one into its own folder
     /// and hangs it at once, so it never needs saving by hand and the
-    /// Desktop only gets what you keep. Also listens for the global shortcut.
+    /// Desktop only gets what you keep. Also listens for the global shortcuts.
     class ClipboardCatcher
     {
         static DateTime ignoreUntil = DateTime.MinValue;
 
         readonly HwndSource window;
         readonly Action<string, Rect?> onCapture;
-        readonly Action onHotKey;
+        readonly Action onHotKey, onSnipKey;
         readonly DispatcherTimer settle = new DispatcherTimer();
         IntPtr foregroundAtCapture;
         public bool Enabled;
         public bool HotKeyRegistered;
-        const int HotKeyId = 0x5045;
+        const int HotKeyId = 0x5045, SnipKeyId = 0x5046;
+        /// The shortcut that starts a screenshot, null for none.
+        public Shortcut SnipKey;
+        public bool SnipKeyRegistered;
+        /// A screenshot you asked for is caught even with catching off.
+        DateTime armedUntil = DateTime.MinValue;
 
         /// Copying a photo off the line puts an image on the clipboard too;
         /// that one must not be caught again.
@@ -166,10 +171,11 @@ namespace Pegline
             ignoreUntil = DateTime.UtcNow.AddSeconds(1);
         }
 
-        public ClipboardCatcher(Action<string, Rect?> onCapture, Action onHotKey)
+        public ClipboardCatcher(Action<string, Rect?> onCapture, Action onHotKey, Action onSnipKey)
         {
             this.onCapture = onCapture;
             this.onHotKey = onHotKey;
+            this.onSnipKey = onSnipKey;
             var p = new HwndSourceParameters("PeglineMessages") { ParentWindow = Native.HWND_MESSAGE, Width = 0, Height = 0 };
             window = new HwndSource(p);
             window.AddHook(WndProc);
@@ -186,7 +192,33 @@ namespace Pegline
         {
             Native.RemoveClipboardFormatListener(window.Handle);
             Native.UnregisterHotKey(window.Handle, HotKeyId);
+            Native.UnregisterHotKey(window.Handle, SnipKeyId);
             window.Dispose();
+        }
+
+        /// Takes over a new screenshot shortcut, or none. False when another
+        /// app already holds that combination.
+        public bool SetSnipKey(Shortcut key)
+        {
+            Native.UnregisterHotKey(window.Handle, SnipKeyId);
+            SnipKey = key;
+            SnipKeyRegistered = key != null
+                && Native.RegisterHotKey(window.Handle, SnipKeyId, key.Mods | Native.MOD_NOREPEAT, key.Vk);
+            return key == null || SnipKeyRegistered;
+        }
+
+        /// Lets go of the shortcut while a new one is being pressed, so the
+        /// old one reaches the dialog instead of starting a screenshot.
+        public void SuspendSnipKey()
+        {
+            Native.UnregisterHotKey(window.Handle, SnipKeyId);
+            SnipKeyRegistered = false;
+        }
+
+        /// The next screenshot within a minute hangs, catching on or off.
+        public void ArmOnce()
+        {
+            armedUntil = DateTime.UtcNow.AddSeconds(60);
         }
 
         IntPtr WndProc(IntPtr hwnd, int msg, IntPtr w, IntPtr l, ref bool handled)
@@ -196,7 +228,13 @@ namespace Pegline
                 onHotKey();
                 handled = true;
             }
-            else if (msg == Native.WM_CLIPBOARDUPDATE && Enabled && DateTime.UtcNow > ignoreUntil && !OwnedByUs())
+            else if (msg == Native.WM_HOTKEY && w.ToInt32() == SnipKeyId)
+            {
+                onSnipKey();
+                handled = true;
+            }
+            else if (msg == Native.WM_CLIPBOARDUPDATE && (Enabled || DateTime.UtcNow < armedUntil)
+                     && DateTime.UtcNow > ignoreUntil && !OwnedByUs())
             {
                 Trace.Write("clipboard update");
                 foregroundAtCapture = Native.GetForegroundWindow();
@@ -299,6 +337,7 @@ namespace Pegline
                 var enc = new PngBitmapEncoder();
                 enc.Frames.Add(BitmapFrame.Create(image));
                 using (var fs = File.Create(path)) enc.Save(fs);
+                armedUntil = DateTime.MinValue;
                 onCapture(path, CaptureArea.Guess(image.PixelWidth, image.PixelHeight, foregroundAtCapture));
             }
             catch (Exception) { }

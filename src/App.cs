@@ -65,7 +65,10 @@ namespace Pegline
             panel.PlaceOnScreen();
             UpdateCapacity();
 
-            catcher = new ClipboardCatcher(HangCapture, Toggle) { Enabled = CatchClipboard };
+            catcher = new ClipboardCatcher(HangCapture, Toggle, Snip) { Enabled = CatchClipboard };
+            // Never set means the default; "none" means you turned it off.
+            string snipKey = Settings.GetString("snipKey");
+            catcher.SetSnipKey(snipKey == "none" ? null : Shortcut.Parse(snipKey) ?? Shortcut.DefaultSnip);
             StartWatcher();
             SetUpTray();
             WatchBandClicks();
@@ -165,6 +168,48 @@ namespace Pegline
                       "让 Pegline 接管你的截图吗？"),
                 MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (answer == MessageBoxResult.Yes) SetCatching(true);
+        }
+
+        /// The screenshot shortcut: Windows' own snipping overlay, the one
+        /// behind Win+Shift+S. What you snip hangs even with catching off.
+        void Snip()
+        {
+            catcher.ArmOnce();
+            try { Process.Start("ms-screenclip:"); }
+            catch (Exception)
+            {
+                // Older Windows without the protocol: press Win+Shift+S, once
+                // the keys of the shortcut itself are likely let go.
+                After(0.3, delegate
+                {
+                    Native.keybd_event(Native.VK_LWIN, 0, 0, UIntPtr.Zero);
+                    Native.keybd_event(Native.VK_SHIFT, 0, 0, UIntPtr.Zero);
+                    Native.keybd_event((byte)'S', 0, 0, UIntPtr.Zero);
+                    Native.keybd_event((byte)'S', 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
+                    Native.keybd_event(Native.VK_SHIFT, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
+                    Native.keybd_event(Native.VK_LWIN, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
+                });
+            }
+        }
+
+        void ChangeSnipKey()
+        {
+            var before = catcher.SnipKey;
+            catcher.SuspendSnipKey();
+            var dialog = new ShortcutDialog(before, key =>
+            {
+                if (key != null && key.Equals(Shortcut.Toggle) && catcher.HotKeyRegistered)
+                    return Loc.L("Ctrl+Alt+T already shows and hides the line.", "Ctrl+Alt+T ya muestra y oculta el tendedero.",
+                                 "Ctrl+Alt+T 已经用来放下 / 收起绳子了。");
+                if (!catcher.SetSnipKey(key))
+                    return Loc.L("Another app is using this combination. Try another one.",
+                                 "Otra aplicación usa esta combinación. Prueba otra.",
+                                 "这个组合已被其他程序占用，换一个试试。");
+                Settings.SetString("snipKey", key == null ? "none" : key.ToString());
+                return null;
+            });
+            dialog.ShowDialog();
+            if (!dialog.Applied) catcher.SetSnipKey(before);
         }
 
         bool IsDuplicate(string path)
@@ -488,6 +533,13 @@ namespace Pegline
             var toggle = add(isRevealed ? Loc.L("Hide line", "Ocultar tendedero", "收起绳子")
                                         : Loc.L("Show line", "Mostrar tendedero", "放下绳子"), Toggle);
             if (catcher.HotKeyRegistered) toggle.ShortcutKeyDisplayString = "Ctrl+Alt+T";
+
+            var snip = add(Loc.L("Take a screenshot", "Hacer una captura", "截图"), Snip);
+            if (catcher.SnipKeyRegistered) snip.ShortcutKeyDisplayString = catcher.SnipKey.ToString();
+            string keyText = catcher.SnipKey == null ? Loc.L("none", "ninguno", "未设置")
+                : catcher.SnipKeyRegistered ? catcher.SnipKey.ToString()
+                : catcher.SnipKey + Loc.L(" (in use by another app)", " (en uso por otra aplicación)", "（被其他程序占用）");
+            add(string.Format(Loc.L("Screenshot shortcut: {0}…", "Atajo de captura: {0}…", "截图快捷键：{0}…"), keyText), ChangeSnipKey);
 
             add(Loc.L("Take everything down", "Descolgar todo", "全部取下"), line.Clear).Enabled = line.LiveCount > 0;
 
