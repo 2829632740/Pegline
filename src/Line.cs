@@ -25,6 +25,8 @@ namespace Pegline
         public bool Falling;
         /// Still flying in from where it was captured; the card waits hidden.
         public bool Flying;
+        /// Seconds in a row the file has been missing, as the timer saw it.
+        public int MissingTicks;
 
         public Pegged(string path, BitmapSource thumb)
         {
@@ -79,7 +81,7 @@ namespace Pegline
             // An image edited in Paint is saved over the original: the photo on
             // the line shows the new version.
             editTimer.Interval = TimeSpan.FromSeconds(1);
-            editTimer.Tick += delegate { Prune(); ReloadEdited(); };
+            editTimer.Tick += delegate { PruneSlowly(); ReloadEdited(); };
             editTimer.Start();
         }
 
@@ -214,6 +216,19 @@ namespace Pegline
                 Drop(item.Id, true);
         }
 
+        /// The timer's version of Prune, for files outside the watched folder.
+        /// An editor that saves by writing a temporary file and renaming it
+        /// over the original leaves a moment with no file; only a file still
+        /// missing a second later has really gone.
+        void PruneSlowly()
+        {
+            foreach (var item in Items.Where(i => !i.Falling).ToList())
+            {
+                if (File.Exists(item.Path)) item.MissingTicks = 0;
+                else if (++item.MissingTicks >= 2) Drop(item.Id, true);
+            }
+        }
+
         // Actions on one photo
 
         public void Copy(Guid id)
@@ -278,6 +293,7 @@ namespace Pegline
             Drop(id, true);
             if (SoundOn) Sounds.Rustle();
         }
+
         /// Whether the file lives in Pegline's own folder. Those are discarded
         /// to the Recycle Bin, or the folder would fill up with forgotten
         /// screenshots. Files anywhere else stay where they are.
