@@ -17,7 +17,8 @@ namespace Pegline
         static readonly Random rnd = new Random();
 
         public readonly Guid Id = Guid.NewGuid();
-        public readonly string Path;
+        /// Changes only when a duplicate capture is folded into its twin.
+        public string Path;
         public BitmapSource Thumb;
         public DateTime LastWrite;
         /// Every photo hangs a little crooked, like on a real line.
@@ -300,9 +301,29 @@ namespace Pegline
         public bool IsInInbox(Guid id)
         {
             var item = Find(id);
-            if (item == null) return false;
-            string dir = System.IO.Path.GetFullPath(InboxFolder).TrimEnd('\\') + "\\";
-            return System.IO.Path.GetFullPath(item.Path).StartsWith(dir, StringComparison.OrdinalIgnoreCase);
+            return item != null && InInbox(item.Path);
+        }
+
+        public static bool InInbox(string path)
+        {
+            try
+            {
+                string dir = System.IO.Path.GetFullPath(InboxFolder).TrimEnd('\\') + "\\";
+                return System.IO.Path.GetFullPath(path).StartsWith(dir, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception) { return false; }
+        }
+
+        /// The photo hanging from one file now stands for another with the
+        /// same picture: the copy Pegline caught gives way to the one Windows
+        /// saved, so a capture is kept once.
+        public void Repoint(string from, string to)
+        {
+            var item = Items.FirstOrDefault(i => !i.Falling && SamePath(i.Path, from));
+            if (item == null) return;
+            item.Path = to;
+            item.LastWrite = Pegged.SafeWriteTime(to);
+            Save();
         }
 
         /// The corner cross and "Take down" both end up here.
@@ -467,6 +488,43 @@ namespace Pegline
                 }
             }
             catch (Exception) { return new Size(0, 0); }
+        }
+
+        /// Whether two image files hold the same picture. The clipboard copy
+        /// and the file Windows saves can differ in encoding and alpha, so
+        /// only colour counts, with a little slack for rounding; anything
+        /// beyond 0.5% of pixels clearly different is another picture.
+        public static bool SamePicture(string a, string b)
+        {
+            try
+            {
+                byte[] pa, pb;
+                int wa, ha, wb, hb;
+                if (!Pixels(a, out pa, out wa, out ha) || !Pixels(b, out pb, out wb, out hb)) return false;
+                if (wa != wb || ha != hb) return false;
+                long allowed = (long)wa * ha / 200, differing = 0;
+                for (int i = 0; i < pa.Length; i += 4)
+                {
+                    if (Math.Abs(pa[i] - pb[i]) > 8 || Math.Abs(pa[i + 1] - pb[i + 1]) > 8 || Math.Abs(pa[i + 2] - pb[i + 2]) > 8)
+                        if (++differing > allowed) return false;
+                }
+                return true;
+            }
+            catch (Exception) { return false; }
+        }
+
+        static bool Pixels(string path, out byte[] px, out int w, out int h)
+        {
+            px = null; w = h = 0;
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            {
+                var frame = BitmapFrame.Create(fs, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+                var bgr = new FormatConvertedBitmap(frame, System.Windows.Media.PixelFormats.Bgr32, null, 0);
+                w = bgr.PixelWidth; h = bgr.PixelHeight;
+                px = new byte[w * h * 4];
+                bgr.CopyPixels(px, w * 4, 0);
+            }
+            return true;
         }
 
         static Size PixelSize(byte[] bytes)

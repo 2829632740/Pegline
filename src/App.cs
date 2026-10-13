@@ -43,8 +43,8 @@ namespace Pegline
         bool keepOpen;
         int lastLiveCount;
         Forms.Screen pendingScreen;
-        /// Recent captures by size: Win+PrtScn and the Windows 11 Snipping
-        /// Tool both save a file and fill the clipboard. One capture, one photo.
+        /// Recent captures: Win+PrtScn and the Windows 11 Snipping Tool both
+        /// save a file and fill the clipboard. One capture, one photo, one file.
         readonly List<KeyValuePair<DateTime, string>> recent = new List<KeyValuePair<DateTime, string>>();
 
         /// How long the pointer rests against the top edge before the line
@@ -219,16 +219,32 @@ namespace Pegline
             if (!dialog.Applied) catcher.SetSnipKey(before);
         }
 
-        bool IsDuplicate(string path)
+        /// The capture this one is a second copy of, if any: taken within a
+        /// few seconds, one caught from the clipboard and the other saved by
+        /// Windows, with the same picture. Two captures from the same source
+        /// are always two captures, however alike.
+        string TwinOf(string path)
         {
-            var size = Thumbnails.PixelSizeOf(path);
-            if (size.Width <= 0) return false;
-            string key = size.Width + "x" + size.Height;
             var now = DateTime.UtcNow;
             recent.RemoveAll(r => (now - r.Key).TotalSeconds > 4);
-            bool dup = recent.Any(r => r.Value == key);
-            recent.Add(new KeyValuePair<DateTime, string>(now, key));
-            return dup;
+            bool caught = Line.InInbox(path);
+            var twin = recent.Select(r => r.Value)
+                             .FirstOrDefault(p => Line.InInbox(p) != caught && File.Exists(p) && Thumbnails.SamePicture(p, path));
+            if (twin == null) recent.Add(new KeyValuePair<DateTime, string>(now, path));
+            return twin;
+        }
+
+        /// Keeps the file Windows saved and deletes the copy Pegline caught,
+        /// moving the photo over to it if the copy is the one hanging.
+        void FoldTwins(string path, string twin)
+        {
+            string copy = Line.InInbox(path) ? path : twin;
+            string saved = copy == path ? twin : path;
+            line.Repoint(copy, saved);
+            try { File.Delete(copy); }
+            catch (Exception) { }
+            recent.RemoveAll(r => r.Value == copy);
+            recent.Add(new KeyValuePair<DateTime, string>(DateTime.UtcNow, saved));
         }
 
         // The capture flying to the line
@@ -237,11 +253,15 @@ namespace Pegline
         /// place on the line. Without a known capture area it simply drops in.
         void HangCapture(string path, Rect? from)
         {
-            bool dup;
-            try { dup = IsDuplicate(path); }
-            catch (Exception) { dup = false; }
-            Trace.Write("capture " + path + " dup=" + dup);
-            if (dup) return;
+            string twin;
+            try { twin = TwinOf(path); }
+            catch (Exception) { twin = null; }
+            Trace.Write("capture " + path + " twin=" + twin);
+            if (twin != null)
+            {
+                FoldTwins(path, twin);
+                return;
+            }
             if (from.HasValue)
             {
                 var r = from.Value;
