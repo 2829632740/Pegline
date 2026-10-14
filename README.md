@@ -37,6 +37,7 @@ build.cmd
 | 点击屏幕最上沿（标签页、标题栏） | 收起绳子 |
 | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>T</kbd>，或左键点托盘图标 | 显示 / 收起 |
 | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>S</kbd>（可在托盘菜单「截图快捷键」里改） | 截图，截完自动挂上绳子 |
+| 先复制一段文字，再按 <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>N</kbd>（可在托盘菜单「便签快捷键」里改） | 把这段文字挂成便签；悬停可换颜色（黄 / 蓝 / 粉 / 灰）、复制文字、用记事本打开编辑 |
 
 ## 截图从哪来
 
@@ -80,6 +81,7 @@ Pegline 不自己实现截图，用的是 Windows 自带的截图界面：
 
 - 设置：`%APPDATA%\Pegline\settings.ini`，挂着的图片列表：`%APPDATA%\Pegline\pegged.txt`
 - 接管下来的截图：`%LOCALAPPDATA%\Pegline\Screenshots`
+- 便签：`%LOCALAPPDATA%\Pegline\Notes`（每张便签一个 .txt 文件），颜色记在 `settings.ini`
 - 出错日志：`%APPDATA%\Pegline\error.log`；在同目录建一个空文件 `trace.on` 会额外记录 `trace.log`（剪贴板、拖拽事件）
 - 开机启动：写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
 
@@ -98,7 +100,8 @@ Pegline 不自己实现截图，用的是 Windows 自带的截图界面：
 | `Watchers.cs` | 监听 Screenshots 文件夹、接管剪贴板截图、全局快捷键 | `ScreenshotWatcher.swift`、`Inbox.swift`、`HotKey.swift` |
 | `Flight.cs` | 截图飞上绳子、丢弃时掉落、全屏检测 | `CaptureFlight.swift`、`FullScreen.swift` |
 | `Support.cs` | 多语言、设置、音效、弹簧动画 | `Localization.swift` |
-| `Shortcut.cs` | 快捷键的保存格式、「截图快捷键」设置窗口 | |
+| `Shortcut.cs` | 快捷键的保存格式、快捷键设置窗口 | |
+| `Notes.cs` | 便签：存成 .txt 文件、颜色、画成卡片 | |
 | `AppIcon.cs` | 用代码画的图标（托盘和 exe 共用） | `scripts/make-icon.swift` |
 | `Native.cs` | Win32 调用 | |
 

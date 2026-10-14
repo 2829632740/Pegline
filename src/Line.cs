@@ -29,6 +29,9 @@ namespace Pegline
         /// Seconds in a row the file has been missing, as the timer saw it.
         public int MissingTicks;
 
+        /// A sticky note rather than a picture.
+        public bool IsNote { get { return Notes.IsNote(Path); } }
+
         public Pegged(string path, BitmapSource thumb)
         {
             Path = path;
@@ -110,7 +113,7 @@ namespace Pegline
         public Guid Hang(string path, bool quietly = false, bool flying = false)
         {
             if (Items.Any(i => SamePath(i.Path, path) && !i.Falling)) return Guid.Empty;
-            var thumb = Thumbnails.Load(path, 480);
+            var thumb = LoadThumb(path);
             if (thumb == null) return Guid.Empty;
             var item = new Pegged(path, thumb) { Flying = flying };
             Items.Add(item);
@@ -232,6 +235,22 @@ namespace Pegline
 
         // Actions on one photo
 
+        static BitmapSource LoadThumb(string path)
+        {
+            return Notes.IsNote(path) ? Notes.Thumb(path) : Thumbnails.Load(path, 480);
+        }
+
+        /// A note in another colour: saved with the note, redrawn at once.
+        public void SetNoteColor(Guid id, int color)
+        {
+            var item = Find(id);
+            if (item == null || !item.IsNote) return;
+            Notes.SetColor(item.Path, color);
+            var thumb = Notes.Thumb(item.Path);
+            if (thumb != null) item.Thumb = thumb;
+            Notify();
+        }
+
         public void Copy(Guid id)
         {
             var item = Find(id);
@@ -239,13 +258,23 @@ namespace Pegline
             try
             {
                 var data = new DataObject();
-                var full = Thumbnails.Load(item.Path, 0);
-                if (full != null) data.SetImage(full);
-                var png = PngData(item.Path, full);
-                if (png != null) data.SetData("PNG", new MemoryStream(png));
-                data.SetFileDropList(new StringCollection { item.Path });
+                if (item.IsNote)
+                {
+                    // A note copies as its text, ready to paste anywhere.
+                    string text = Notes.Read(item.Path);
+                    if (text == null) throw new IOException();
+                    data.SetText(text, TextDataFormat.UnicodeText);
+                }
+                else
+                {
+                    var full = Thumbnails.Load(item.Path, 0);
+                    if (full != null) data.SetImage(full);
+                    var png = PngData(item.Path, full);
+                    if (png != null) data.SetData("PNG", new MemoryStream(png));
+                    data.SetFileDropList(new StringCollection { item.Path });
+                }
                 ClipboardCatcher.IgnoreNext();
-                Clipboard.SetDataObject(data, true);
+                PutOnClipboard(data);
             }
             catch (Exception)
             {
@@ -258,6 +287,42 @@ namespace Pegline
             {
                 if (CopiedId == id) { CopiedId = Guid.Empty; Notify(); }
             });
+        }
+
+        /// Puts the copy on the clipboard, then flushes it so it outlives
+        /// Pegline. Clipboard history and other watchers open the clipboard
+        /// the moment it changes, so the flush often loses that race; the
+        /// copy is already there by then, so the flush is simply tried again
+        /// a little later instead of setting the clipboard again, which would
+        /// only start the race over.
+        static void PutOnClipboard(DataObject data)
+        {
+            for (int attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    Clipboard.SetDataObject(data, false);
+                    break;
+                }
+                catch (System.Runtime.InteropServices.COMException)
+                {
+                    if (attempt >= 9) throw;
+                    System.Threading.Thread.Sleep(50);
+                }
+            }
+            FlushLater(data, 0);
+        }
+
+        static void FlushLater(DataObject data, int attempt)
+        {
+            try
+            {
+                if (Clipboard.IsCurrent(data)) Clipboard.Flush();
+            }
+            catch (System.Runtime.InteropServices.COMException)
+            {
+                if (attempt < 10) After(0.1 * (attempt + 1), delegate { FlushLater(data, attempt + 1); });
+            }
         }
 
         public void Open(Guid id)
@@ -329,7 +394,15 @@ namespace Pegline
         /// The corner cross and "Take down" both end up here.
         public void Discard(Guid id)
         {
-            if (IsInInbox(id)) Trash(id); else Drop(id);
+            if (IsOwn(id)) Trash(id); else Drop(id);
+        }
+
+        /// Files Pegline made itself, caught screenshots and notes: discarding
+        /// them sends them to the Recycle Bin instead of leaving them behind.
+        public bool IsOwn(Guid id)
+        {
+            var item = Find(id);
+            return item != null && (InInbox(item.Path) || item.IsNote);
         }
 
         /// Keep a caught screenshot by moving it to the Desktop.
@@ -365,6 +438,13 @@ namespace Pegline
         {
             var item = Find(id);
             if (item == null) return;
+            if (item.IsNote)
+            {
+                // Saving in Notepad redraws the note on the line.
+                try { Process.Start("notepad.exe", "\"" + item.Path + "\""); }
+                catch (Exception) { Open(id); }
+                return;
+            }
             try { Process.Start("mspaint.exe", "\"" + item.Path + "\""); }
             catch (Exception)
             {
@@ -387,7 +467,7 @@ namespace Pegline
             {
                 var stamp = Pegged.SafeWriteTime(item.Path);
                 if (stamp == item.LastWrite || stamp == DateTime.MinValue) continue;
-                var thumb = Thumbnails.Load(item.Path, 480);
+                var thumb = LoadThumb(item.Path);
                 if (thumb == null) continue;   // still being written, try next second
                 item.LastWrite = stamp;
                 item.Thumb = thumb;

@@ -68,10 +68,9 @@ namespace Pegline
             panel.PlaceOnScreen();
             UpdateCapacity();
 
-            catcher = new ClipboardCatcher(HangCapture, Toggle, Snip) { Enabled = CatchClipboard };
-            // Never set means the default; "none" means you turned it off.
-            string snipKey = Settings.GetString("snipKey");
-            catcher.SetSnipKey(snipKey == "none" ? null : Shortcut.Parse(snipKey) ?? Shortcut.DefaultSnip);
+            catcher = new ClipboardCatcher(HangCapture, Toggle, Snip, HangNote) { Enabled = CatchClipboard };
+            LoadKey(ClipboardCatcher.SnipKeyId, "snipKey", Shortcut.DefaultSnip);
+            LoadKey(ClipboardCatcher.NoteKeyId, "noteKey", Shortcut.DefaultNote);
             StartWatcher();
             SetUpTray();
             WatchBandClicks();
@@ -199,24 +198,75 @@ namespace Pegline
             }
         }
 
-        void ChangeSnipKey()
+        /// Never set means the default; "none" means you turned it off.
+        void LoadKey(int id, string setting, Shortcut fallback)
         {
-            var before = catcher.SnipKey;
-            catcher.SuspendSnipKey();
-            var dialog = new ShortcutDialog(before, key =>
+            string stored = Settings.GetString(setting);
+            catcher.SetKey(id, stored == "none" ? null : Shortcut.Parse(stored) ?? fallback);
+        }
+
+        void ChangeKey(int id, string setting, string title)
+        {
+            int other = id == ClipboardCatcher.SnipKeyId ? ClipboardCatcher.NoteKeyId : ClipboardCatcher.SnipKeyId;
+            var before = catcher.KeyOf(id);
+            catcher.SuspendKey(id);
+            var dialog = new ShortcutDialog(title, before, key =>
             {
                 if (key != null && key.Equals(Shortcut.Toggle) && catcher.HotKeyRegistered)
                     return Loc.L("Ctrl+Alt+T already shows and hides the line.", "Ctrl+Alt+T ya muestra y oculta el tendedero.",
                                  "Ctrl+Alt+T 已经用来放下 / 收起绳子了。");
-                if (!catcher.SetSnipKey(key))
+                if (key != null && key.Equals(catcher.KeyOf(other)))
+                    return Loc.L("Pegline already uses this combination for something else.",
+                                 "Pegline ya usa esta combinación para otra cosa.",
+                                 "这个组合 Pegline 已经用在另一个功能上了。");
+                if (!catcher.SetKey(id, key))
                     return Loc.L("Another app is using this combination. Try another one.",
                                  "Otra aplicación usa esta combinación. Prueba otra.",
                                  "这个组合已被其他程序占用，换一个试试。");
-                Settings.SetString("snipKey", key == null ? "none" : key.ToString());
+                Settings.SetString(setting, key == null ? "none" : key.ToString());
                 return null;
             });
             dialog.ShowDialog();
-            if (!dialog.Applied) catcher.SetSnipKey(before);
+            if (!dialog.Applied) catcher.SetKey(id, before);
+        }
+
+        /// The note shortcut: the text on the clipboard hangs as a sticky
+        /// note. Only when you ask, so copied passwords never end up on the
+        /// line by themselves.
+        void HangNote()
+        {
+            string text = null;
+            for (int attempt = 0; attempt < 4 && text == null; attempt++)
+            {
+                try { text = Clipboard.ContainsText() ? Clipboard.GetText() : ""; }
+                catch (System.Runtime.InteropServices.COMException) { System.Threading.Thread.Sleep(40); }
+                catch (Exception) { text = ""; }
+            }
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                var key = catcher.KeyOf(ClipboardCatcher.NoteKeyId);
+                tray.ShowBalloonTip(3000, "Pegline", string.Format(Loc.L(
+                    "There is no text on the clipboard. Copy some text, then press {0}.",
+                    "No hay texto en el portapapeles. Copia un texto y pulsa {0}.",
+                    "剪贴板里没有文字。先复制一段文字，再按 {0}。"), key != null ? key.ToString() : Loc.L("the shortcut", "el atajo", "快捷键")),
+                    Forms.ToolTipIcon.Info);
+                return;
+            }
+            // The same text again just shows the note already there.
+            var same = line.Items.FirstOrDefault(i => !i.Falling && i.IsNote && Notes.Read(i.Path) == text);
+            if (same != null)
+            {
+                wanted = true;
+                Refresh();
+                Reveal(false, 2.5);
+                return;
+            }
+            try
+            {
+                pendingScreen = Screens.UnderPointer();
+                line.Hang(Notes.Create(text));
+            }
+            catch (Exception) { System.Media.SystemSounds.Beep.Play(); }
         }
 
         /// The capture this one is a second copy of, if any: taken within a
@@ -505,7 +555,11 @@ namespace Pegline
             if (!isPresent || !isRevealed || buttonDown || line.PressedId != Guid.Empty || FullScreen.IsActive(panel.Screen))
                 preview.Hide();
             else
-                preview.Update(line.Find(over), panel.HoverFrame(over), panel.Screen, now);
+            {
+                // A note shows all it has on its card; there is no picture to enlarge.
+                var item = line.Find(over);
+                preview.Update(item != null && item.IsNote ? null : item, panel.HoverFrame(over), panel.Screen, now);
+            }
         }
 
         void UpdateCapacity()
@@ -573,12 +627,18 @@ namespace Pegline
                                         : Loc.L("Show line", "Mostrar tendedero", "放下绳子"), Toggle);
             if (catcher.HotKeyRegistered) toggle.ShortcutKeyDisplayString = "Ctrl+Alt+T";
 
+            int snipId = ClipboardCatcher.SnipKeyId, noteId = ClipboardCatcher.NoteKeyId;
             var snip = add(Loc.L("Take a screenshot", "Hacer una captura", "截图"), Snip);
-            if (catcher.SnipKeyRegistered) snip.ShortcutKeyDisplayString = catcher.SnipKey.ToString();
-            string keyText = catcher.SnipKey == null ? Loc.L("none", "ninguno", "未设置")
-                : catcher.SnipKeyRegistered ? catcher.SnipKey.ToString()
-                : catcher.SnipKey + Loc.L(" (in use by another app)", " (en uso por otra aplicación)", "（被其他程序占用）");
-            add(string.Format(Loc.L("Screenshot shortcut: {0}…", "Atajo de captura: {0}…", "截图快捷键：{0}…"), keyText), ChangeSnipKey);
+            if (catcher.Holds(snipId)) snip.ShortcutKeyDisplayString = catcher.KeyOf(snipId).ToString();
+            var note = add(Loc.L("Hang copied text as a note", "Colgar el texto copiado como nota", "把复制的文字挂成便签"), HangNote);
+            if (catcher.Holds(noteId)) note.ShortcutKeyDisplayString = catcher.KeyOf(noteId).ToString();
+            Func<int, string> keyText = id => catcher.KeyOf(id) == null ? Loc.L("none", "ninguno", "未设置")
+                : catcher.Holds(id) ? catcher.KeyOf(id).ToString()
+                : catcher.KeyOf(id) + Loc.L(" (in use by another app)", " (en uso por otra aplicación)", "（被其他程序占用）");
+            string snipTitle = Loc.L("Screenshot shortcut", "Atajo de captura", "截图快捷键");
+            string noteTitle = Loc.L("Note shortcut", "Atajo de nota", "便签快捷键");
+            add(snipTitle + Loc.L(": ", ": ", "：") + keyText(snipId) + "…", () => ChangeKey(snipId, "snipKey", snipTitle));
+            add(noteTitle + Loc.L(": ", ": ", "：") + keyText(noteId) + "…", () => ChangeKey(noteId, "noteKey", noteTitle));
 
             add(Loc.L("Take everything down", "Descolgar todo", "全部取下"), line.Clear).Enabled = line.LiveCount > 0;
 

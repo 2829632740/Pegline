@@ -16,6 +16,8 @@ namespace Pegline
         /// Ctrl+Alt+S: clear of QQ (Ctrl+Alt+A), WeChat (Alt+A), DingTalk
         /// and Feishu (Ctrl+Shift+A), so starting at login steals none of them.
         public static readonly Shortcut DefaultSnip = new Shortcut(Native.MOD_CONTROL | Native.MOD_ALT, 'S');
+        /// Ctrl+Alt+N: hang the copied text as a note.
+        public static readonly Shortcut DefaultNote = new Shortcut(Native.MOD_CONTROL | Native.MOD_ALT, 'N');
         public static readonly Shortcut Toggle = new Shortcut(Native.MOD_CONTROL | Native.MOD_ALT, 'T');
 
         public Shortcut(uint mods, uint vk)
@@ -100,10 +102,10 @@ namespace Pegline
 
         /// apply tries a choice (null for none) and returns why it cannot be
         /// used, or null once it is in place.
-        public ShortcutDialog(Shortcut current, Func<Shortcut, string> apply)
+        public ShortcutDialog(string title, Shortcut current, Func<Shortcut, string> apply)
         {
             this.apply = apply;
-            Title = Loc.L("Screenshot shortcut", "Atajo de captura", "截图快捷键");
+            Title = title;
             SizeToContent = SizeToContent.WidthAndHeight;
             ResizeMode = ResizeMode.NoResize;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;

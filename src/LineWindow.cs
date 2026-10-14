@@ -272,7 +272,8 @@ namespace Pegline
             var frame = CardFrame(id);
             if (!frame.HasValue) return null;
             var r = frame.Value;
-            r.Height += (Layout.ActionsGap + Layout.ActionsHeight) * Scale;
+            var item = line.Find(id);
+            r.Height += Layout.Below(item != null && item.IsNote) * Scale;
             return r;
         }
 

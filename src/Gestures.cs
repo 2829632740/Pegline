@@ -184,7 +184,7 @@ namespace Pegline
             add(Loc.L("Open", "Abrir", "打开"), () => line.Open(id));
             add(Loc.L("Edit", "Editar", "编辑"), () => line.Markup(id));
             add(Loc.L("Show in Explorer", "Mostrar en el Explorador", "在资源管理器中显示"), () => line.Reveal(id));
-            bool inInbox = line.IsInInbox(id);
+            bool inInbox = line.IsOwn(id);
             if (inInbox) add(Loc.L("Save to Desktop", "Guardar en el Escritorio", "保存到桌面"), () => line.SaveToDesktop(id));
             menu.Items.Add(new Separator());
             if (inInbox)

@@ -152,15 +152,18 @@ namespace Pegline
 
         readonly HwndSource window;
         readonly Action<string, Rect?> onCapture;
-        readonly Action onHotKey, onSnipKey;
+        readonly Action onHotKey;
         readonly DispatcherTimer settle = new DispatcherTimer();
         IntPtr foregroundAtCapture;
         public bool Enabled;
         public bool HotKeyRegistered;
-        const int HotKeyId = 0x5045, SnipKeyId = 0x5046;
-        /// The shortcut that starts a screenshot, null for none.
-        public Shortcut SnipKey;
-        public bool SnipKeyRegistered;
+        const int HotKeyId = 0x5045;
+        /// The shortcuts you can choose: one starts a screenshot, one hangs
+        /// the copied text as a note.
+        public const int SnipKeyId = 0x5046, NoteKeyId = 0x5047;
+        readonly Dictionary<int, Action> keyActions = new Dictionary<int, Action>();
+        readonly Dictionary<int, Shortcut> keys = new Dictionary<int, Shortcut>();
+        readonly HashSet<int> held = new HashSet<int>();
         /// A screenshot you asked for is caught even with catching off.
         DateTime armedUntil = DateTime.MinValue;
 
@@ -171,11 +174,12 @@ namespace Pegline
             ignoreUntil = DateTime.UtcNow.AddSeconds(1);
         }
 
-        public ClipboardCatcher(Action<string, Rect?> onCapture, Action onHotKey, Action onSnipKey)
+        public ClipboardCatcher(Action<string, Rect?> onCapture, Action onHotKey, Action onSnipKey, Action onNoteKey)
         {
             this.onCapture = onCapture;
             this.onHotKey = onHotKey;
-            this.onSnipKey = onSnipKey;
+            keyActions[SnipKeyId] = onSnipKey;
+            keyActions[NoteKeyId] = onNoteKey;
             var p = new HwndSourceParameters("PeglineMessages") { ParentWindow = Native.HWND_MESSAGE, Width = 0, Height = 0 };
             window = new HwndSource(p);
             window.AddHook(WndProc);
@@ -192,27 +196,39 @@ namespace Pegline
         {
             Native.RemoveClipboardFormatListener(window.Handle);
             Native.UnregisterHotKey(window.Handle, HotKeyId);
-            Native.UnregisterHotKey(window.Handle, SnipKeyId);
+            foreach (int id in keyActions.Keys) Native.UnregisterHotKey(window.Handle, id);
             window.Dispose();
         }
 
-        /// Takes over a new screenshot shortcut, or none. False when another
-        /// app already holds that combination.
-        public bool SetSnipKey(Shortcut key)
+        /// The shortcut chosen for one of the keys, null for none.
+        public Shortcut KeyOf(int id)
         {
-            Native.UnregisterHotKey(window.Handle, SnipKeyId);
-            SnipKey = key;
-            SnipKeyRegistered = key != null
-                && Native.RegisterHotKey(window.Handle, SnipKeyId, key.Mods | Native.MOD_NOREPEAT, key.Vk);
-            return key == null || SnipKeyRegistered;
+            Shortcut key;
+            return keys.TryGetValue(id, out key) ? key : null;
         }
 
-        /// Lets go of the shortcut while a new one is being pressed, so the
-        /// old one reaches the dialog instead of starting a screenshot.
-        public void SuspendSnipKey()
+        /// Whether that shortcut is actually ours, not held by another app.
+        public bool Holds(int id) { return held.Contains(id); }
+
+        /// Takes over a new shortcut, or none. False when another app already
+        /// holds that combination.
+        public bool SetKey(int id, Shortcut key)
         {
-            Native.UnregisterHotKey(window.Handle, SnipKeyId);
-            SnipKeyRegistered = false;
+            Native.UnregisterHotKey(window.Handle, id);
+            keys[id] = key;
+            held.Remove(id);
+            if (key == null) return true;
+            if (!Native.RegisterHotKey(window.Handle, id, key.Mods | Native.MOD_NOREPEAT, key.Vk)) return false;
+            held.Add(id);
+            return true;
+        }
+
+        /// Lets go of a shortcut while a new one is being pressed, so the old
+        /// one reaches the dialog instead of doing its job.
+        public void SuspendKey(int id)
+        {
+            Native.UnregisterHotKey(window.Handle, id);
+            held.Remove(id);
         }
 
         /// The next screenshot within a minute hangs, catching on or off.
@@ -228,9 +244,9 @@ namespace Pegline
                 onHotKey();
                 handled = true;
             }
-            else if (msg == Native.WM_HOTKEY && w.ToInt32() == SnipKeyId)
+            else if (msg == Native.WM_HOTKEY && keyActions.ContainsKey(w.ToInt32()))
             {
-                onSnipKey();
+                keyActions[w.ToInt32()]();
                 handled = true;
             }
             else if (msg == Native.WM_CLIPBOARDUPDATE && (Enabled || DateTime.UtcNow < armedUntil)

@@ -19,6 +19,16 @@ namespace Pegline
         /// row, so they fit under the tallest card within the panel.
         public const double ActionsGap = 6;
         public const double ActionsHeight = 26;
+        /// A note also gets a row of colour swatches above its buttons. Notes
+        /// are short sheets, so both rows still fit within the panel.
+        public const double SwatchesHeight = 22;
+        public const double RowGap = 4;
+
+        /// How far a hovered card's controls reach below it.
+        public static double Below(bool note)
+        {
+            return ActionsGap + (note ? SwatchesHeight + RowGap : 0) + ActionsHeight;
+        }
 
         /// The rope hangs as a parabola from edge to edge of the screen.
         public static double Sag(double width) { return Math.Min(30, width * 0.018); }
@@ -108,6 +118,10 @@ namespace Pegline
         readonly Grid cross = new Grid();
         readonly Border copiedLabel = new Border();
         readonly StackPanel actions = new StackPanel { Orientation = Orientation.Horizontal };
+        /// Notes only: one dot per paper colour, the current one ticked.
+        readonly Border swatches;
+        readonly Grid[] swatchDots = new Grid[Notes.ColorCount];
+        int shownColor = -1;
         readonly UIElement pin = Frame.Clothespin();
         readonly DropShadowEffect shadow = new DropShadowEffect { Direction = 270, Color = Colors.Black };
         readonly RotateTransform rotate = new RotateTransform();
@@ -189,6 +203,40 @@ namespace Pegline
             actions.IsHitTestVisible = false;
             Children.Add(actions);
 
+            if (item.IsNote)
+            {
+                var dots = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                for (int i = 0; i < Notes.ColorCount; i++)
+                {
+                    int color = i;
+                    var dot = new Grid { Width = 15, Height = 15, Margin = new Thickness(i == 0 ? 0 : 6, 0, 0, 0), Cursor = Cursors.Hand, Background = Brushes.Transparent };
+                    dot.Children.Add(new Ellipse
+                    {
+                        Fill = new SolidColorBrush(Notes.Swatch(i)),
+                        Stroke = new SolidColorBrush(Color.FromArgb(0x50, 0, 0, 0)), StrokeThickness = 0.75
+                    });
+                    dot.Children.Add(new TextBlock
+                    {
+                        Text = "", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 9,
+                        Foreground = new SolidColorBrush(Color.FromRgb(40, 40, 40)),
+                        HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
+                    });
+                    dot.MouseLeftButtonDown += (s, e) => { e.Handled = true; Gestures.NotifyInteracting(); };
+                    dot.MouseLeftButtonUp += (s, e) => { e.Handled = true; line.SetNoteColor(Item.Id, color); };
+                    dot.MouseRightButtonUp += (s, e) => { e.Handled = true; };
+                    swatchDots[i] = dot;
+                    dots.Children.Add(dot);
+                }
+                swatches = new Border
+                {
+                    Height = Layout.SwatchesHeight, CornerRadius = new CornerRadius(Layout.SwatchesHeight / 2), Padding = new Thickness(6, 0, 6, 0),
+                    Background = Frame.Glass(), BorderBrush = Frame.Edge(), BorderThickness = new Thickness(0.75), Child = dots,
+                    Effect = new DropShadowEffect { Direction = 270, ShadowDepth = 2, BlurRadius = 8, Opacity = 0.18 },
+                    Opacity = 0, IsHitTestVisible = false
+                };
+                Children.Add(swatches);
+            }
+
             Gestures.Attach(frameHost, this, line);
 
             if (item.Flying)
@@ -218,7 +266,10 @@ namespace Pegline
                 double top = Layout.RopeY(X.Value, ActualWidthOfLine) - Layout.PinAbove + drop.Value + Frame.CardOffsetBelowTop;
                 var r = new Rect(left, top, card.Width, card.Height);
                 if (line.HoverId == Item.Id && line.DraggingId == Guid.Empty)
-                    r.Union(new Rect(X.Value - ActionsWidth / 2, top + card.Height + Layout.ActionsGap, ActionsWidth, Layout.ActionsHeight));
+                {
+                    double width = Math.Max(ActionsWidth, swatches != null ? swatches.DesiredSize.Width : 0);
+                    r.Union(new Rect(X.Value - width / 2, top + card.Height, width, Layout.Below(swatches != null)));
+                }
                 return r;
             }
         }
@@ -247,11 +298,19 @@ namespace Pegline
             copiedLabel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             SetLeft(copiedLabel, (Layout.CardWidth - copiedLabel.DesiredSize.Width) / 2);
             SetTop(copiedLabel, Frame.CardOffsetBelowTop + card.Height + 16 - copiedLabel.DesiredSize.Height / 2);
+            double row = Frame.CardOffsetBelowTop + card.Height + Layout.ActionsGap;
+            if (swatches != null)
+            {
+                swatches.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                SetLeft(swatches, (Layout.CardWidth - swatches.DesiredSize.Width) / 2);
+                SetTop(swatches, row);
+                row += Layout.SwatchesHeight + Layout.RowGap;
+            }
             actions.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             ActionsWidth = actions.DesiredSize.Width;
             SetLeft(actions, (Layout.CardWidth - ActionsWidth) / 2);
-            SetTop(actions, Frame.CardOffsetBelowTop + card.Height + Layout.ActionsGap);
-            Height = Frame.CardOffsetBelowTop + card.Height + 40;
+            SetTop(actions, row);
+            Height = Frame.CardOffsetBelowTop + card.Height + Math.Max(40, Layout.Below(swatches != null) + 4);
         }
 
         /// A small glass pill with an icon and a word.
@@ -370,6 +429,19 @@ namespace Pegline
             actions.Opacity = dragging ? 0 : actionsOpacity;
             actions.IsHitTestVisible = showActions;
             actions.RenderTransform = new TranslateTransform(0, -4 * (1 - actionsOpacity));
+            if (swatches != null)
+            {
+                swatches.Opacity = actions.Opacity;
+                swatches.IsHitTestVisible = showActions;
+                swatches.RenderTransform = actions.RenderTransform;
+                int color = Notes.ColorOf(Item.Path);
+                if (color != shownColor)
+                {
+                    shownColor = color;
+                    for (int i = 0; i < swatchDots.Length; i++)
+                        swatchDots[i].Children[1].Visibility = i == color ? Visibility.Visible : Visibility.Hidden;
+                }
+            }
             copiedLabel.Opacity = copiedOpacity;
             copiedLabel.RenderTransform = new TranslateTransform(0, -4 * (1 - copiedOpacity));
         }
