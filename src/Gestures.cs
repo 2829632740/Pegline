@@ -24,6 +24,12 @@ namespace Pegline
         /// Dismiss passive previews before any click, menu or drag starts.
         public static event Action Interacting;
 
+        /// For controls outside a card's frame, such as its buttons.
+        public static void NotifyInteracting()
+        {
+            if (Interacting != null) Interacting();
+        }
+
         /// How long you hold before the editor opens. Long enough not to fire
         /// on a slow click, short enough to feel deliberate.
         const double HoldSeconds = 0.45;

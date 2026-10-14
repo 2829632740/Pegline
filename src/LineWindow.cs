@@ -265,6 +265,17 @@ namespace Pegline
             return ToScreen(new Rect(x - size.Width / 2, top, size.Width, size.Height));
         }
 
+        /// A hovered card with its Copy and Open buttons, in device pixels:
+        /// the big preview opens below this, never over the buttons.
+        public Rect? HoverFrame(Guid id)
+        {
+            var frame = CardFrame(id);
+            if (!frame.HasValue) return null;
+            var r = frame.Value;
+            r.Height += (Layout.ActionsGap + Layout.ActionsHeight) * Scale;
+            return r;
+        }
+
         /// Keeps the views in step with the line's items.
         public void Sync()
         {

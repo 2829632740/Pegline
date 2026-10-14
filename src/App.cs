@@ -505,7 +505,7 @@ namespace Pegline
             if (!isPresent || !isRevealed || buttonDown || line.PressedId != Guid.Empty || FullScreen.IsActive(panel.Screen))
                 preview.Hide();
             else
-                preview.Update(line.Find(over), panel.CardFrame(over), panel.Screen, now);
+                preview.Update(line.Find(over), panel.HoverFrame(over), panel.Screen, now);
         }
 
         void UpdateCapacity()

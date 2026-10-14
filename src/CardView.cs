@@ -15,6 +15,10 @@ namespace Pegline
         public const double Spacing = 174;
         public const double CardWidth = 150;
         public const double PinAbove = 9.5;
+        /// The Copy and Open buttons that appear under a card on hover: one
+        /// row, so they fit under the tallest card within the panel.
+        public const double ActionsGap = 6;
+        public const double ActionsHeight = 26;
 
         /// The rope hangs as a parabola from edge to edge of the screen.
         public static double Sag(double width) { return Math.Min(30, width * 0.018); }
@@ -103,6 +107,7 @@ namespace Pegline
         readonly Image photo = new Image();
         readonly Grid cross = new Grid();
         readonly Border copiedLabel = new Border();
+        readonly StackPanel actions = new StackPanel { Orientation = Orientation.Horizontal };
         readonly UIElement pin = Frame.Clothespin();
         readonly DropShadowEffect shadow = new DropShadowEffect { Direction = 270, Color = Colors.Black };
         readonly RotateTransform rotate = new RotateTransform();
@@ -113,7 +118,7 @@ namespace Pegline
         readonly Spring drop = new Spring(0.42, 0.72, -46);
         readonly Spring swing = new Spring(1, 1, 0);
         readonly Spring press = new Spring(0.3, 0.6, 1);
-        double opacity, crossOpacity, copiedOpacity;
+        double opacity, crossOpacity, copiedOpacity, actionsOpacity;
         bool arrived, wasFlying, wasHover, wasCopied;
         // A nudge eases out to an angle, then the spring lets it swing back.
         double nudgeFrom, nudgeTo, nudgeT = -1;
@@ -175,6 +180,15 @@ namespace Pegline
             };
             Children.Add(copiedLabel);
 
+            // Copy and Open under the card, for when a click or a double click
+            // is not obvious. Shown on hover; they move and tilt with the card.
+            actions.Children.Add(ActionButton("", Loc.L("Copy", "Copiar", "复制"), () => line.Copy(Item.Id)));
+            actions.Children.Add(ActionButton("", Loc.L("Open", "Abrir", "打开"), () => line.Open(Item.Id)));
+            ((FrameworkElement)actions.Children[1]).Margin = new Thickness(6, 0, 0, 0);
+            actions.Opacity = 0;
+            actions.IsHitTestVisible = false;
+            Children.Add(actions);
+
             Gestures.Attach(frameHost, this, line);
 
             if (item.Flying)
@@ -194,16 +208,23 @@ namespace Pegline
         }
 
         /// The card's frame in window coordinates, for catching clicks only
-        /// over photos.
+        /// over photos. While the card is hovered it reaches down over its
+        /// buttons, so moving onto them keeps them there.
         public Rect HitRect
         {
             get
             {
                 double left = X.Value - card.Width / 2;
                 double top = Layout.RopeY(X.Value, ActualWidthOfLine) - Layout.PinAbove + drop.Value + Frame.CardOffsetBelowTop;
-                return new Rect(left, top, card.Width, card.Height);
+                var r = new Rect(left, top, card.Width, card.Height);
+                if (line.HoverId == Item.Id && line.DraggingId == Guid.Empty)
+                    r.Union(new Rect(X.Value - ActionsWidth / 2, top + card.Height + Layout.ActionsGap, ActionsWidth, Layout.ActionsHeight));
+                return r;
             }
         }
+
+        /// The width of the button row, in window units.
+        public double ActionsWidth;
 
         public double ActualWidthOfLine;
 
@@ -226,7 +247,39 @@ namespace Pegline
             copiedLabel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             SetLeft(copiedLabel, (Layout.CardWidth - copiedLabel.DesiredSize.Width) / 2);
             SetTop(copiedLabel, Frame.CardOffsetBelowTop + card.Height + 16 - copiedLabel.DesiredSize.Height / 2);
+            actions.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            ActionsWidth = actions.DesiredSize.Width;
+            SetLeft(actions, (Layout.CardWidth - ActionsWidth) / 2);
+            SetTop(actions, Frame.CardOffsetBelowTop + card.Height + Layout.ActionsGap);
             Height = Frame.CardOffsetBelowTop + card.Height + 40;
+        }
+
+        /// A small glass pill with an icon and a word.
+        static Border ActionButton(string glyph, string label, Action act)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            var ink = new SolidColorBrush(Color.FromRgb(30, 30, 30));
+            row.Children.Add(new TextBlock
+            {
+                Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 11, Foreground = ink,
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 1, 6, 0)
+            });
+            row.Children.Add(new TextBlock { Text = label, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = ink, VerticalAlignment = VerticalAlignment.Center });
+            var idle = Frame.Glass();
+            var lit = new SolidColorBrush(Color.FromArgb(0xF2, 0xFF, 0xFF, 0xFF));
+            var b = new Border
+            {
+                Height = Layout.ActionsHeight, CornerRadius = new CornerRadius(Layout.ActionsHeight / 2), Padding = new Thickness(11, 0, 13, 0),
+                Background = idle, BorderBrush = Frame.Edge(), BorderThickness = new Thickness(0.75), Child = row, Cursor = Cursors.Hand,
+                Effect = new DropShadowEffect { Direction = 270, ShadowDepth = 2, BlurRadius = 8, Opacity = 0.18 }
+            };
+            bool down = false;
+            b.MouseEnter += delegate { b.Background = lit; };
+            b.MouseLeave += delegate { b.Background = idle; down = false; };
+            b.MouseLeftButtonDown += (s, e) => { e.Handled = true; down = true; Gestures.NotifyInteracting(); };
+            b.MouseLeftButtonUp += (s, e) => { e.Handled = true; if (down) act(); down = false; };
+            b.MouseRightButtonUp += (s, e) => { e.Handled = true; };
+            return b;
         }
 
         public void Breeze(Random rnd)
@@ -294,6 +347,9 @@ namespace Pegline
 
             crossOpacity += ((hover ? 1 : 0) - crossOpacity) * Math.Min(1, dt * 12);
             copiedOpacity += ((copied ? 1 : 0) - copiedOpacity) * Math.Min(1, dt * 12);
+            // The buttons give way to the "Copied" label, which shows in their place.
+            bool showActions = hover && !copied && !pressed && arrived && !Item.Flying;
+            actionsOpacity += ((showActions ? 1 : 0) - actionsOpacity) * Math.Min(1, dt * 14);
             if (hover != wasHover)
             {
                 shadow.Opacity = hover ? 0.26 : 0.18;
@@ -311,6 +367,9 @@ namespace Pegline
             frameHost.Opacity = dragging ? 0.45 : 1;
             cross.Opacity = dragging ? 0 : crossOpacity;
             cross.RenderTransform = new ScaleTransform(0.6 + 0.4 * crossOpacity, 0.6 + 0.4 * crossOpacity, 10, 10);
+            actions.Opacity = dragging ? 0 : actionsOpacity;
+            actions.IsHitTestVisible = showActions;
+            actions.RenderTransform = new TranslateTransform(0, -4 * (1 - actionsOpacity));
             copiedLabel.Opacity = copiedOpacity;
             copiedLabel.RenderTransform = new TranslateTransform(0, -4 * (1 - copiedOpacity));
         }
