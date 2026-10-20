@@ -151,7 +151,7 @@ namespace Pegline
         static DateTime ignoreUntil = DateTime.MinValue;
 
         readonly HwndSource window;
-        readonly Action<string, Rect?> onCapture;
+        readonly Action<string, Rect?, bool> onCapture;
         readonly Action onHotKey;
         readonly DispatcherTimer settle = new DispatcherTimer();
         IntPtr foregroundAtCapture;
@@ -166,6 +166,7 @@ namespace Pegline
         readonly HashSet<int> held = new HashSet<int>();
         /// A screenshot you asked for is caught even with catching off.
         DateTime armedUntil = DateTime.MinValue;
+        bool editArmed;
 
         /// Copying a photo off the line puts an image on the clipboard too;
         /// that one must not be caught again.
@@ -174,7 +175,7 @@ namespace Pegline
             ignoreUntil = DateTime.UtcNow.AddSeconds(1);
         }
 
-        public ClipboardCatcher(Action<string, Rect?> onCapture, Action onHotKey, Action onSnipKey, Action onNoteKey)
+        public ClipboardCatcher(Action<string, Rect?, bool> onCapture, Action onHotKey, Action onSnipKey, Action onNoteKey)
         {
             this.onCapture = onCapture;
             this.onHotKey = onHotKey;
@@ -235,6 +236,15 @@ namespace Pegline
         public void ArmOnce()
         {
             armedUntil = DateTime.UtcNow.AddSeconds(60);
+            editArmed = false;
+        }
+
+        /// The dedicated Pegline shortcut is deliberately different from
+        /// ordinary clipboard capture: it opens the in-app markup sheet first.
+        public void ArmForEditor()
+        {
+            armedUntil = DateTime.UtcNow.AddSeconds(60);
+            editArmed = true;
         }
 
         IntPtr WndProc(IntPtr hwnd, int msg, IntPtr w, IntPtr l, ref bool handled)
@@ -353,8 +363,10 @@ namespace Pegline
                 var enc = new PngBitmapEncoder();
                 enc.Frames.Add(BitmapFrame.Create(image));
                 using (var fs = File.Create(path)) enc.Save(fs);
+                bool edit = editArmed && DateTime.UtcNow < armedUntil;
                 armedUntil = DateTime.MinValue;
-                onCapture(path, CaptureArea.Guess(image.PixelWidth, image.PixelHeight, foregroundAtCapture));
+                editArmed = false;
+                onCapture(path, CaptureArea.Guess(image.PixelWidth, image.PixelHeight, foregroundAtCapture), edit);
             }
             catch (Exception) { }
         }
