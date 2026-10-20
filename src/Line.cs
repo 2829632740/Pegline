@@ -581,16 +581,36 @@ namespace Pegline
                 byte[] pa, pb;
                 int wa, ha, wb, hb;
                 if (!Pixels(a, out pa, out wa, out ha) || !Pixels(b, out pb, out wb, out hb)) return false;
-                if (wa != wb || ha != hb) return false;
-                long allowed = (long)wa * ha / 200, differing = 0;
-                for (int i = 0; i < pa.Length; i += 4)
-                {
-                    if (Math.Abs(pa[i] - pb[i]) > 8 || Math.Abs(pa[i + 1] - pb[i + 1]) > 8 || Math.Abs(pa[i + 2] - pb[i + 2]) > 8)
-                        if (++differing > allowed) return false;
-                }
-                return true;
+                return SamePixels(pa, wa, ha, pb, wb, hb);
             }
             catch (Exception) { return false; }
+        }
+
+        /// A dedicated edited capture keeps its original bitmap in memory for
+        /// a few seconds, so a late notification from Pictures\\Screenshots
+        /// can still be folded instead of appearing as an unmarked duplicate.
+        public static bool SamePicture(BitmapSource image, string path)
+        {
+            try
+            {
+                byte[] pa, pb;
+                int wa, ha, wb, hb;
+                if (!Pixels(image, out pa, out wa, out ha) || !Pixels(path, out pb, out wb, out hb)) return false;
+                return SamePixels(pa, wa, ha, pb, wb, hb);
+            }
+            catch (Exception) { return false; }
+        }
+
+        static bool SamePixels(byte[] pa, int wa, int ha, byte[] pb, int wb, int hb)
+        {
+            if (wa != wb || ha != hb) return false;
+            long allowed = (long)wa * ha / 200, differing = 0;
+            for (int i = 0; i < pa.Length; i += 4)
+            {
+                if (Math.Abs(pa[i] - pb[i]) > 8 || Math.Abs(pa[i + 1] - pb[i + 1]) > 8 || Math.Abs(pa[i + 2] - pb[i + 2]) > 8)
+                    if (++differing > allowed) return false;
+            }
+            return true;
         }
 
         static bool Pixels(string path, out byte[] px, out int w, out int h)
@@ -604,6 +624,17 @@ namespace Pegline
                 px = new byte[w * h * 4];
                 bgr.CopyPixels(px, w * 4, 0);
             }
+            return true;
+        }
+
+        static bool Pixels(BitmapSource image, out byte[] px, out int w, out int h)
+        {
+            px = null; w = h = 0;
+            if (image == null) return false;
+            var bgr = new FormatConvertedBitmap(image, System.Windows.Media.PixelFormats.Bgr32, null, 0);
+            w = bgr.PixelWidth; h = bgr.PixelHeight;
+            px = new byte[w * h * 4];
+            bgr.CopyPixels(px, w * 4, 0);
             return true;
         }
 

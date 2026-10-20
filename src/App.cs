@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Windows;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Forms = System.Windows.Forms;
 
@@ -46,6 +47,25 @@ namespace Pegline
         /// Recent captures: Win+PrtScn and the Windows 11 Snipping Tool both
         /// save a file and fill the clipboard. One capture, one photo, one file.
         readonly List<KeyValuePair<DateTime, string>> recent = new List<KeyValuePair<DateTime, string>>();
+        EditingCapture editing;
+        readonly List<RecentEditedCapture> recentlyEdited = new List<RecentEditedCapture>();
+
+        sealed class EditingCapture
+        {
+            public string Path;
+            public Rect? From;
+            public BitmapSource Original;
+            // Windows 11 may also save this same snip in Pictures\\Screenshots.
+            // If it does, the editor writes its finished PNG there instead of
+            // leaving an unedited twin behind.
+            public string Twin;
+        }
+
+        sealed class RecentEditedCapture
+        {
+            public BitmapSource Original;
+            public DateTime Until;
+        }
 
         /// How long the pointer rests against the top edge before the line
         /// comes down. Short enough to feel instant, long enough that a quick
@@ -68,7 +88,7 @@ namespace Pegline
             panel.PlaceOnScreen();
             UpdateCapacity();
 
-            catcher = new ClipboardCatcher(HangCapture, Toggle, Snip, HangNote) { Enabled = CatchClipboard };
+            catcher = new ClipboardCatcher(Capture, Toggle, Snip, HangNote) { Enabled = CatchClipboard };
             LoadKey(ClipboardCatcher.SnipKeyId, "snipKey", Shortcut.DefaultSnip);
             LoadKey(ClipboardCatcher.NoteKeyId, "noteKey", Shortcut.DefaultNote);
             StartWatcher();
@@ -146,7 +166,7 @@ namespace Pegline
             {
                 // Win+PrtScn captures the whole screen, so it can fly up from there.
                 var size = Thumbnails.PixelSizeOf(path);
-                HangCapture(path, CaptureArea.Guess((int)size.Width, (int)size.Height, Native.GetForegroundWindow(), false));
+                WatchCapture(path, CaptureArea.Guess((int)size.Width, (int)size.Height, Native.GetForegroundWindow(), false));
             }, line.Prune);
             watcher.Start();
         }
@@ -177,10 +197,11 @@ namespace Pegline
         }
 
         /// The screenshot shortcut: Windows' own snipping overlay, the one
-        /// behind Win+Shift+S. What you snip hangs even with catching off.
+        /// behind Win+Shift+S. Its result opens Pegline's markup sheet even
+        /// with ordinary clipboard catching switched off.
         void Snip()
         {
-            catcher.ArmOnce();
+            catcher.ArmForEditor();
             try { Process.Start("ms-screenclip:"); }
             catch (Exception)
             {
@@ -195,6 +216,55 @@ namespace Pegline
                     Native.keybd_event(Native.VK_SHIFT, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
                     Native.keybd_event(Native.VK_LWIN, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
                 });
+            }
+        }
+
+        void Capture(string path, Rect? from, bool edit)
+        {
+            if (edit) EditCapture(path, from);
+            else HangCapture(path, from);
+        }
+
+        void WatchCapture(string path, Rect? from)
+        {
+            // A Snipping Tool capture can reach its saved-file notification
+            // while its clipboard copy is being edited. Keep it out of the
+            // line; saving the editor will write the marked-up pixels here.
+            if (editing != null && editing.Original != null && Thumbnails.SamePicture(editing.Original, path))
+            {
+                editing.Twin = path;
+                return;
+            }
+            recentlyEdited.RemoveAll(c => c.Until < DateTime.UtcNow);
+            if (recentlyEdited.Any(c => Thumbnails.SamePicture(c.Original, path))) return;
+            HangCapture(path, from);
+        }
+
+        void EditCapture(string path, Rect? from)
+        {
+            var current = new EditingCapture { Path = path, From = from, Original = Thumbnails.Load(path, 0) };
+            editing = current;
+            bool saved = ImageEditor.Edit(path, delegate { return current.Twin ?? current.Path; });
+            editing = null;
+
+            if (saved)
+            {
+                string output = current.Twin ?? path;
+                if (current.Original != null)
+                    recentlyEdited.Add(new RecentEditedCapture { Original = current.Original, Until = DateTime.UtcNow.AddSeconds(10) });
+                if (!String.Equals(output, path, StringComparison.OrdinalIgnoreCase))
+                {
+                    try { File.Delete(path); }
+                    catch (Exception) { }
+                }
+                HangCapture(output, from);
+            }
+            else if (Line.InInbox(path))
+            {
+                // Cancelling a Pegline-owned capture should leave no orphan.
+                // A Windows-owned twin, if any, remains exactly as Windows made it.
+                try { File.Delete(path); }
+                catch (Exception) { }
             }
         }
 
