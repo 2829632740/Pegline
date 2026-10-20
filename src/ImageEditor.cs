@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -25,9 +26,14 @@ namespace Pegline
         readonly List<TextBox> textEditors = new List<TextBox>();
         readonly List<UIElement> marks = new List<UIElement>();
         readonly Stack<UIElement> undone = new Stack<UIElement>();
+        readonly Dictionary<Tool, Button> toolButtons = new Dictionary<Tool, Button>();
+        readonly Dictionary<Color, Button> colorButtons = new Dictionary<Color, Button>();
+        readonly Dictionary<double, Button> widthButtons = new Dictionary<double, Button>();
         Tool tool = Tool.Arrow;
         Color color = Colors.Red;
         double stroke = 8;
+        Button undoButton;
+        Button redoButton;
         Point start;
         bool drawingNow;
         ArrowShape arrow;
@@ -69,60 +75,151 @@ namespace Pegline
 
         UIElement BuildToolbar()
         {
-            var bar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(10) };
-            DockPanel.SetDock(bar, Dock.Top);
-            AddToolButton(bar, "↗", Tool.Arrow, Loc.L("Arrow", "Flecha", "箭头"));
-            AddToolButton(bar, "□", Tool.Rectangle, Loc.L("Rectangle", "Rectángulo", "矩形"));
-            AddToolButton(bar, "T", Tool.Text, Loc.L("Text", "Texto", "文字"));
-            AddToolButton(bar, "▦", Tool.Mosaic, Loc.L("Mosaic", "Mosaico", "马赛克"));
-            bar.Children.Add(new Separator { Width = 16, Opacity = 0 });
-            AddColorButton(bar, Colors.Red); AddColorButton(bar, Colors.Gold); AddColorButton(bar, Colors.LimeGreen);
-            AddColorButton(bar, Colors.DodgerBlue); AddColorButton(bar, Colors.Black); AddColorButton(bar, Colors.White);
-            bar.Children.Add(new Separator { Width = 16, Opacity = 0 });
-            AddWidthButton(bar, 4); AddWidthButton(bar, 8); AddWidthButton(bar, 12);
-            bar.Children.Add(new Separator { Width = 16, Opacity = 0 });
-            var undo = Button(Loc.L("Undo", "Deshacer", "撤销"));
-            undo.Click += delegate { Undo(); };
-            bar.Children.Add(undo);
-            var redo = Button(Loc.L("Redo", "Rehacer", "重做"));
-            redo.Click += delegate { Redo(); };
-            bar.Children.Add(redo);
+            var bar = new DockPanel { Margin = new Thickness(12, 8, 12, 8), LastChildFill = true };
+            var controls = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            AddToolButton(controls, "↗", Tool.Arrow, Loc.L("Arrow", "Flecha", "箭头"));
+            AddToolButton(controls, "□", Tool.Rectangle, Loc.L("Rectangle", "Rectángulo", "矩形"));
+            AddToolButton(controls, "T", Tool.Text, Loc.L("Text", "Texto", "文字"));
+            AddToolButton(controls, "▦", Tool.Mosaic, Loc.L("Mosaic", "Mosaico", "马赛克"));
+            AddDivider(controls);
+            AddColorButton(controls, Colors.Red); AddColorButton(controls, Colors.Gold); AddColorButton(controls, Colors.LimeGreen);
+            AddColorButton(controls, Colors.DodgerBlue); AddColorButton(controls, Colors.Black); AddColorButton(controls, Colors.White);
+            AddDivider(controls);
+            AddWidthButton(controls, 4); AddWidthButton(controls, 8); AddWidthButton(controls, 12);
+            AddDivider(controls);
+            undoButton = Button(Loc.L("Undo", "Deshacer", "撤销"));
+            undoButton.ToolTip = Loc.L("Undo (Ctrl+Z)", "Deshacer (Ctrl+Z)", "撤销 (Ctrl+Z)");
+            undoButton.Click += delegate { Undo(); };
+            controls.Children.Add(undoButton);
+            redoButton = Button(Loc.L("Redo", "Rehacer", "重做"));
+            redoButton.ToolTip = Loc.L("Redo (Ctrl+Y)", "Rehacer (Ctrl+Y)", "重做 (Ctrl+Y)");
+            redoButton.Click += delegate { Redo(); };
+            controls.Children.Add(redoButton);
+
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             var cancel = Button(Loc.L("Cancel", "Cancelar", "取消"));
             cancel.Click += delegate { DialogResult = false; };
-            bar.Children.Add(cancel);
-            var save = Button(Loc.L("Save", "Guardar", "保存"));
+            actions.Children.Add(cancel);
+            var save = PrimaryButton(Loc.L("Save", "Guardar", "保存"));
             save.Click += delegate { Save(); };
-            bar.Children.Add(save);
-            return bar;
+            actions.Children.Add(save);
+            DockPanel.SetDock(actions, Dock.Right);
+            bar.Children.Add(actions);
+            bar.Children.Add(controls);
+            UpdateToolbarState();
+            UpdateHistoryButtons();
+            var toolbar = new Border
+            {
+                Background = Brush(37, 37, 38),
+                BorderBrush = Brush(62, 62, 66),
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Child = bar
+            };
+            DockPanel.SetDock(toolbar, Dock.Top);
+            return toolbar;
         }
 
         Button Button(string label)
         {
-            return new Button { Content = label, Margin = new Thickness(3), Padding = new Thickness(10, 5, 10, 5), MinWidth = 44 };
+            return new Button { Content = label, Style = ToolbarButtonStyle(), Margin = new Thickness(2), Padding = new Thickness(10, 6, 10, 6), MinWidth = 44 };
+        }
+
+        Button PrimaryButton(string label)
+        {
+            return new Button { Content = label, Style = PrimaryToolbarButtonStyle(), Margin = new Thickness(2), Padding = new Thickness(14, 6, 14, 6), MinWidth = 60 };
         }
 
         void AddToolButton(Panel bar, string label, Tool selected, string tip)
         {
             var button = Button(label);
             button.ToolTip = tip;
-            button.Click += delegate { tool = selected; drawing.Cursor = selected == Tool.Text ? Cursors.IBeam : Cursors.Cross; };
+            button.FontSize = selected == Tool.Text ? 16 : 18;
+            button.Click += delegate { tool = selected; drawing.Cursor = selected == Tool.Text ? Cursors.IBeam : Cursors.Cross; UpdateToolbarState(); };
             bar.Children.Add(button);
+            toolButtons.Add(selected, button);
         }
 
         void AddColorButton(Panel bar, Color value)
         {
-            var button = new Button { Margin = new Thickness(3), Width = 25, Height = 25, Background = new SolidColorBrush(value), BorderBrush = Brushes.LightGray };
+            var button = new Button { Style = ToolbarButtonStyle(), Margin = new Thickness(3), Width = 28, Height = 28, Background = new SolidColorBrush(value), BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(1) };
             button.ToolTip = value.ToString();
-            button.Click += delegate { color = value; };
+            button.Click += delegate { color = value; UpdateToolbarState(); };
             bar.Children.Add(button);
+            colorButtons.Add(value, button);
         }
 
         void AddWidthButton(Panel bar, double value)
         {
             var button = Button(value == 4 ? "·" : value == 8 ? "●" : "⬤");
             button.ToolTip = Loc.L("Line width", "Grosor", "线宽") + " " + value;
-            button.Click += delegate { stroke = value; };
+            button.Click += delegate { stroke = value; UpdateToolbarState(); };
             bar.Children.Add(button);
+            widthButtons.Add(value, button);
+        }
+
+        static void AddDivider(Panel bar)
+        {
+            bar.Children.Add(new Border { Width = 1, Height = 28, Margin = new Thickness(9, 0, 9, 0), Background = Brush(62, 62, 66), VerticalAlignment = VerticalAlignment.Center });
+        }
+
+        static Brush Brush(byte red, byte green, byte blue)
+        {
+            var brush = new SolidColorBrush(Color.FromRgb(red, green, blue));
+            brush.Freeze();
+            return brush;
+        }
+
+        static Style ToolbarButtonStyle()
+        {
+            var style = new Style(typeof(Button));
+            style.Setters.Add(new Setter(Control.BackgroundProperty, Brush(45, 45, 48)));
+            style.Setters.Add(new Setter(Control.ForegroundProperty, Brushes.White));
+            style.Setters.Add(new Setter(Control.BorderBrushProperty, Brush(80, 80, 84)));
+            style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
+            style.Setters.Add(new Setter(Control.FontWeightProperty, FontWeights.SemiBold));
+            style.Setters.Add(new Setter(Control.CursorProperty, Cursors.Hand));
+            style.Setters.Add(new Setter(UIElement.FocusableProperty, true));
+            style.Triggers.Add(new Trigger { Property = UIElement.IsMouseOverProperty, Value = true, Setters = { new Setter(Control.BackgroundProperty, Brush(62, 62, 66)) } });
+            style.Triggers.Add(new Trigger { Property = ButtonBase.IsPressedProperty, Value = true, Setters = { new Setter(Control.BackgroundProperty, Brush(30, 86, 137)) } });
+            style.Triggers.Add(new Trigger { Property = UIElement.IsEnabledProperty, Value = false, Setters = { new Setter(UIElement.OpacityProperty, 0.42) } });
+            return style;
+        }
+
+        static Style PrimaryToolbarButtonStyle()
+        {
+            var style = new Style(typeof(Button), ToolbarButtonStyle());
+            style.Setters.Add(new Setter(Control.BackgroundProperty, Brush(14, 99, 156)));
+            style.Setters.Add(new Setter(Control.BorderBrushProperty, Brush(82, 166, 220)));
+            style.Triggers.Add(new Trigger { Property = UIElement.IsMouseOverProperty, Value = true, Setters = { new Setter(Control.BackgroundProperty, Brush(17, 119, 187)) } });
+            return style;
+        }
+
+        void UpdateToolbarState()
+        {
+            foreach (var pair in toolButtons)
+            {
+                bool selected = pair.Key == tool;
+                pair.Value.Background = selected ? Brush(14, 99, 156) : Brush(45, 45, 48);
+                pair.Value.BorderBrush = selected ? Brush(130, 196, 255) : Brush(80, 80, 84);
+            }
+            foreach (var pair in colorButtons)
+            {
+                bool selected = pair.Key == color;
+                pair.Value.BorderBrush = selected ? (pair.Key == Colors.White ? Brush(14, 99, 156) : Brushes.White) : Brushes.Transparent;
+                pair.Value.BorderThickness = new Thickness(selected ? 3 : 1);
+            }
+            foreach (var pair in widthButtons)
+            {
+                bool selected = pair.Key == stroke;
+                pair.Value.Background = selected ? Brush(14, 99, 156) : Brush(45, 45, 48);
+                pair.Value.BorderBrush = selected ? Brush(130, 196, 255) : Brush(80, 80, 84);
+            }
+        }
+
+        void UpdateHistoryButtons()
+        {
+            if (undoButton != null) undoButton.IsEnabled = marks.Count > 0;
+            if (redoButton != null) redoButton.IsEnabled = undone.Count > 0;
         }
 
         void Down(object sender, MouseButtonEventArgs e)
@@ -160,16 +257,29 @@ namespace Pegline
             drawingNow = false;
             drawing.ReleaseMouseCapture();
             Point end = Clamp(e.GetPosition(drawing));
+            if (arrow != null) arrow.Set(start, end);
+            else if (rectangle != null) SetRectangle(rectangle, start, end);
             if (tool == Tool.Mosaic && mosaicSelection != null)
             {
                 drawing.Children.Remove(mosaicSelection);
                 AddMosaic(start, end);
             }
-            else if (arrow != null) AddMark(arrow.Root);
-            else if (rectangle != null) AddMark(rectangle);
+            else if (arrow != null) AddMarkIfDragged(arrow.Root, end);
+            else if (rectangle != null) AddMarkIfDragged(rectangle, end);
             arrow = null;
             rectangle = null;
             mosaicSelection = null;
+        }
+
+        void AddMarkIfDragged(UIElement mark, Point end)
+        {
+            double dx = end.X - start.X, dy = end.Y - start.Y;
+            if (dx * dx + dy * dy < 1)
+            {
+                drawing.Children.Remove(mark);
+                return;
+            }
+            AddMark(mark);
         }
 
         static void SetRectangle(FrameworkElement shape, Point a, Point b)
@@ -227,6 +337,7 @@ namespace Pegline
         {
             marks.Add(mark);
             undone.Clear();
+            UpdateHistoryButtons();
         }
 
         void Undo()
@@ -237,6 +348,7 @@ namespace Pegline
             marks.RemoveAt(marks.Count - 1);
             drawing.Children.Remove(mark);
             undone.Push(mark);
+            UpdateHistoryButtons();
         }
 
         void Redo()
@@ -245,10 +357,12 @@ namespace Pegline
             UIElement mark = undone.Pop();
             drawing.Children.Add(mark);
             marks.Add(mark);
+            UpdateHistoryButtons();
         }
 
         void Keys(object sender, KeyEventArgs e)
         {
+            if (Keyboard.FocusedElement is TextBox) return;
             if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
             if (e.Key == Key.Z) { Undo(); e.Handled = true; }
             if (e.Key == Key.Y) { Redo(); e.Handled = true; }

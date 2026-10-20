@@ -232,13 +232,6 @@ namespace Pegline
             held.Remove(id);
         }
 
-        /// The next screenshot within a minute hangs, catching on or off.
-        public void ArmOnce()
-        {
-            armedUntil = DateTime.UtcNow.AddSeconds(60);
-            editArmed = false;
-        }
-
         /// The dedicated Pegline shortcut is deliberately different from
         /// ordinary clipboard capture: it opens the in-app markup sheet first.
         public void ArmForEditor()
